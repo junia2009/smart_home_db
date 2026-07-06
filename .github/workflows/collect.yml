@@ -2,7 +2,9 @@ name: collect
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    # 毎時 0/15/30/45 分は GitHub Actions の cron が混雑して間引かれやすいため
+    # 3分オフセットした15分間隔にしている
+    - cron: "3,18,33,48 * * * *"
   workflow_dispatch:
 
 permissions:
