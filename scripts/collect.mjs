@@ -161,6 +161,41 @@ export function evaluateAlerts(metrics, season, prevActive) {
   return { active, newMessages };
 }
 
+// ---- 定時レポート ----
+
+export function localDayKey(nowMs) {
+  const d = localDate(nowMs);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+const ALERT_LABELS = {
+  tempHigh: "室温高",
+  tempLow: "室温低",
+  humHigh: "湿度高",
+  humLow: "湿度低",
+  diHigh: "不快指数",
+  vhLow: "乾燥",
+};
+
+export function buildDailyReport(records, metrics, active) {
+  const now = records[records.length - 1];
+  const recent = records.filter((r) => r.t >= now.t - 86400);
+  const tMin = Math.min(...recent.map((r) => r.temp));
+  const tMax = Math.max(...recent.map((r) => r.temp));
+  const hMin = Math.min(...recent.map((r) => r.hum));
+  const hMax = Math.max(...recent.map((r) => r.hum));
+  const firing = Object.keys(ALERT_LABELS).filter((k) => active[k]);
+  const title = config.reportTitle ?? "【環境レポート】";
+  return [
+    title,
+    `現在: ${now.temp.toFixed(1)}℃ / ${Math.round(now.hum)}%(不快指数${Math.round(metrics.di)})`,
+    `過去24時間: 温度 ${tMin.toFixed(1)}〜${tMax.toFixed(1)}℃ / 湿度 ${Math.round(hMin)}〜${Math.round(hMax)}%`,
+    firing.length > 0
+      ? `⚠️ アラート発火中: ${firing.map((k) => ALERT_LABELS[k]).join("、")}`
+      : `アラート: なし`,
+  ].join("\n");
+}
+
 // ---- LINE 通知 ----
 
 async function lineBroadcast(channelToken, text) {
@@ -281,9 +316,29 @@ async function main() {
     }
   }
 
+  // 定時レポート: 設定時刻以降の最初の実行で1日1回だけ送る
+  let lastReport = state.lastReport ?? null;
+  const todayKey = localDayKey(nowMs);
+  if (
+    config.dailyReport?.enabled &&
+    LINE_CHANNEL_TOKEN &&
+    localDate(nowMs).getUTCHours() >= config.dailyReport.hour &&
+    lastReport !== todayKey
+  ) {
+    try {
+      await lineBroadcast(LINE_CHANNEL_TOKEN, buildDailyReport(records, metrics, active));
+      lastReport = todayKey;
+      console.log("daily report sent");
+    } catch (err) {
+      // 失敗しても記録は保持し、次回実行で再送を試みる
+      console.error(`定時レポート送信に失敗: ${err.message}`);
+      process.exitCode = 1;
+    }
+  }
+
   await writeFile(
     STATE_FILE,
-    JSON.stringify({ active, updatedAt: record.t, season }, null, 2) + "\n"
+    JSON.stringify({ active, lastReport, updatedAt: record.t, season }, null, 2) + "\n"
   );
 }
 
