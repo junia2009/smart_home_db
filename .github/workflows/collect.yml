@@ -27,6 +27,8 @@ jobs:
         run: node scripts/collect.mjs
 
       - name: Commit and push data
+        # 通知送信に失敗しても測定データのコミットは行う
+        if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
