@@ -49,6 +49,18 @@
       <div id="tooltip" class="tooltip" hidden></div>
     </section>
 
+    <details class="table-view" open id="daily-summary" hidden>
+      <summary>日別サマリー <span class="note">各セルは 最低 / 平均 / 最高</span></summary>
+      <div class="table-scroll">
+        <table id="daily-table">
+          <thead>
+            <tr><th>日付</th><th>温度 ℃</th><th>湿度 %</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </details>
+
     <details class="table-view">
       <summary>データ表(直近の記録)</summary>
       <div class="table-scroll">
