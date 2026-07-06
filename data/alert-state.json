@@ -2,11 +2,11 @@
   "active": {
     "tempHigh": false,
     "tempLow": false,
-    "humHigh": false,
+    "humHigh": true,
     "humLow": false,
     "diHigh": false,
     "vhLow": false
   },
-  "updatedAt": 1783340456,
+  "updatedAt": 1783344336,
   "season": "summer"
 }
