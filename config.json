@@ -1,0 +1,28 @@
+{
+  "timezoneOffsetHours": 9,
+  "seasons": {
+    "summerMonths": [5, 6, 7, 8, 9, 10]
+  },
+  "comfort": {
+    "temp": [20, 26],
+    "hum": [40, 60]
+  },
+  "thresholds": {
+    "summer": {
+      "tempHigh": 28,
+      "tempLow": 22,
+      "humHigh": 65,
+      "humLow": null,
+      "diHigh": 80,
+      "vhLow": null
+    },
+    "winter": {
+      "tempHigh": 26,
+      "tempLow": 18,
+      "humHigh": 60,
+      "humLow": 40,
+      "diHigh": null,
+      "vhLow": 7
+    }
+  }
+}
