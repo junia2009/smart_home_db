@@ -285,6 +285,12 @@ body {
   color: var(--text-secondary);
   font-weight: 600;
 }
+.table-view summary .note {
+  font-weight: 400;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-left: 6px;
+}
 .table-scroll { overflow-x: auto; margin-top: 8px; }
 .table-view table {
   border-collapse: collapse;
