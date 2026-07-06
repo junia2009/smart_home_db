@@ -221,27 +221,37 @@ async function main() {
   };
   const season = currentSeason(nowMs);
   const state = await readJsonOr(STATE_FILE, { active: {} });
-  const { active, newMessages } = evaluateAlerts(metrics, season, state.active ?? {});
+  const prevActive = state.active ?? {};
+  const { active, newMessages } = evaluateAlerts(metrics, season, prevActive);
+
+  if (newMessages.length === 0) {
+    console.log(`alerts: none new (season=${season})`);
+  } else {
+    const text = `【赤ちゃん部屋アラート】\n` + newMessages.map((m) => `・${m}`).join("\n");
+    console.log(`alerts: ${JSON.stringify(newMessages)}`);
+
+    if (!LINE_CHANNEL_TOKEN) {
+      console.warn("LINE_CHANNEL_TOKEN 未設定のため通知をスキップします");
+    } else {
+      try {
+        await lineBroadcast(LINE_CHANNEL_TOKEN, text);
+        console.log("LINE broadcast sent");
+      } catch (err) {
+        // 通知失敗でも測定データの記録は保持する。新規発火分を未発火扱いに
+        // 戻して次回実行時に再送を試み、ジョブ自体は失敗としてマークする
+        console.error(`LINE通知に失敗: ${err.message}`);
+        for (const rule of ALERT_RULES) {
+          if (active[rule.key] && !prevActive[rule.key]) active[rule.key] = false;
+        }
+        process.exitCode = 1;
+      }
+    }
+  }
 
   await writeFile(
     STATE_FILE,
     JSON.stringify({ active, updatedAt: record.t, season }, null, 2) + "\n"
   );
-
-  if (newMessages.length === 0) {
-    console.log(`alerts: none new (season=${season})`);
-    return;
-  }
-
-  const text = `【赤ちゃん部屋アラート】\n` + newMessages.map((m) => `・${m}`).join("\n");
-  console.log(`alerts: ${JSON.stringify(newMessages)}`);
-
-  if (!LINE_CHANNEL_TOKEN) {
-    console.warn("LINE_CHANNEL_TOKEN 未設定のため通知をスキップします");
-    return;
-  }
-  await lineBroadcast(LINE_CHANNEL_TOKEN, text);
-  console.log("LINE broadcast sent");
 }
 
 // テストから import できるよう、直接実行時のみ main を走らせる
