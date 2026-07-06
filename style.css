@@ -286,20 +286,20 @@ body {
   font-weight: 600;
 }
 .table-scroll { overflow-x: auto; margin-top: 8px; }
-#data-table {
+.table-view table {
   border-collapse: collapse;
   width: 100%;
-  min-width: 560px;
 }
-#data-table th, #data-table td {
+#data-table { min-width: 560px; }
+.table-view th, .table-view td {
   text-align: right;
   padding: 4px 10px;
   border-bottom: 1px solid var(--grid);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-#data-table th:first-child, #data-table td:first-child { text-align: left; }
-#data-table th {
+.table-view th:first-child, .table-view td:first-child { text-align: left; }
+.table-view th {
   color: var(--text-muted);
   font-weight: 500;
 }

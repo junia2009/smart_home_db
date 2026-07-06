@@ -641,6 +641,54 @@ function renderTooltip(row) {
   }
 }
 
+// ---- 日別サマリー ----
+
+const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+
+function dailySummary(records) {
+  const days = new Map();
+  for (const r of records) {
+    const d = new Date(r.t * 1000);
+    const key = `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+    let day = days.get(key);
+    if (!day) {
+      day = { date: d, tMin: Infinity, tMax: -Infinity, tSum: 0, hMin: Infinity, hMax: -Infinity, hSum: 0, n: 0 };
+      days.set(key, day);
+    }
+    day.tMin = Math.min(day.tMin, r.temp);
+    day.tMax = Math.max(day.tMax, r.temp);
+    day.tSum += r.temp;
+    day.hMin = Math.min(day.hMin, r.hum);
+    day.hMax = Math.max(day.hMax, r.hum);
+    day.hSum += r.hum;
+    day.n += 1;
+  }
+  return [...days.values()].sort((a, b) => b.date - a.date).slice(0, 14);
+}
+
+function renderDailySummary() {
+  const section = document.getElementById("daily-summary");
+  const days = dailySummary(state.records);
+  if (days.length === 0) return;
+  section.hidden = false;
+  const tbody = section.querySelector("tbody");
+  tbody.replaceChildren();
+  for (const day of days) {
+    const tr = document.createElement("tr");
+    const cells = [
+      `${day.date.getMonth() + 1}/${day.date.getDate()}(${WEEKDAYS[day.date.getDay()]})`,
+      `${day.tMin.toFixed(1)} / ${(day.tSum / day.n).toFixed(1)} / ${day.tMax.toFixed(1)}`,
+      `${Math.round(day.hMin)} / ${Math.round(day.hSum / day.n)} / ${Math.round(day.hMax)}`,
+    ];
+    for (const c of cells) {
+      const td = document.createElement("td");
+      td.textContent = c;
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+}
+
 // ---- データ表 ----
 
 function renderTable() {
@@ -730,6 +778,7 @@ async function main() {
   state.plot = buildPlotData();
   renderCards();
   drawCharts();
+  renderDailySummary();
   renderTable();
   setupRangeButtons();
   setupHover();
