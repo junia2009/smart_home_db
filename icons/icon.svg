@@ -1,10 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#2a78d6"/>
-  <!-- thermometer -->
-  <rect x="196" y="104" width="56" height="228" rx="28" fill="none" stroke="#ffffff" stroke-width="24"/>
-  <circle cx="224" cy="368" r="64" fill="none" stroke="#ffffff" stroke-width="24"/>
-  <circle cx="224" cy="368" r="30" fill="#ffffff"/>
-  <rect x="212" y="220" width="24" height="120" fill="#ffffff"/>
-  <!-- humidity drop -->
-  <path d="M356 208c28 40 44 68 44 92a44 44 0 0 1-88 0c0-24 16-52 44-92z" fill="#ffffff"/>
+  <!-- フルブリード: ホーム画面側で角丸マスクされる前提。中央60%が安全域 -->
+  <rect width="512" height="512" fill="#2a78d6"/>
+  <!-- 温度計 -->
+  <rect x="188" y="120" width="52" height="200" rx="26" fill="none" stroke="#ffffff" stroke-width="22"/>
+  <circle cx="214" cy="352" r="56" fill="none" stroke="#ffffff" stroke-width="22"/>
+  <circle cx="214" cy="352" r="26" fill="#ffffff"/>
+  <rect x="203" y="230" width="22" height="110" fill="#ffffff"/>
+  <!-- 水滴 -->
+  <path d="M340 196c26 38 41 64 41 86a41 41 0 0 1-82 0c0-22 15-48 41-86z" fill="#ffffff"/>
 </svg>

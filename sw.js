@@ -2,7 +2,7 @@
  * アプリシェルは cache-first、data/*.json と config.json は network-first
  * (オフライン時はキャッシュ済みの直近データにフォールバック)。
  */
-const CACHE = "env-dashboard-v2";
+const CACHE = "env-dashboard-v3";
 const SHELL = [
   "./",
   "index.html",
