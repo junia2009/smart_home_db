@@ -121,6 +121,61 @@ function buildPlotData() {
     .sort((a, b) => a.t - b.t);
 }
 
+// ---- アラート状態バナー ----
+
+const ALERT_META = {
+  tempHigh: { label: "室温が高い", level: "crit" },
+  tempLow: { label: "室温が低い", level: "crit" },
+  humHigh: { label: "湿度が高い", level: "warn" },
+  humLow: { label: "湿度が低い", level: "warn" },
+  diHigh: { label: "不快指数が高い", level: "crit" },
+  vhLow: { label: "乾燥している", level: "warn" },
+};
+
+// Actions がコミットする alert-state.json を読む。demo 時や取得失敗時は
+// 最新値からクライアント側で同じ判定を行う
+async function loadAlertActive(latest) {
+  if (!new URLSearchParams(location.search).has("demo")) {
+    const alertState = await fetchJson("data/alert-state.json");
+    if (alertState?.active) return alertState.active;
+  }
+  if (!latest) return {};
+  const season = currentSeason(new Date(latest.t * 1000), state.config);
+  const th = state.config.thresholds[season];
+  const di = discomfortIndex(latest.temp, latest.hum);
+  const vh = volumetricHumidity(latest.temp, latest.hum);
+  return {
+    tempHigh: th.tempHigh != null && latest.temp > th.tempHigh,
+    tempLow: th.tempLow != null && latest.temp < th.tempLow,
+    humHigh: th.humHigh != null && latest.hum > th.humHigh,
+    humLow: th.humLow != null && latest.hum < th.humLow,
+    diHigh: th.diHigh != null && di >= th.diHigh,
+    vhLow: th.vhLow != null && vh < th.vhLow,
+  };
+}
+
+function renderBanner(active) {
+  const banner = document.getElementById("alert-banner");
+  banner.hidden = false;
+  banner.replaceChildren();
+  const firing = Object.keys(ALERT_META).filter((k) => active[k]);
+  if (firing.length === 0) {
+    banner.className = "alert-banner level-good";
+    banner.textContent = "✅ すべて適正範囲です";
+    return;
+  }
+  const worst = firing.some((k) => ALERT_META[k].level === "crit") ? "crit" : "warn";
+  banner.className = `alert-banner level-${worst}`;
+  const head = document.createElement("span");
+  head.textContent = `${worst === "crit" ? "🔴" : "⚠️"} アラート発火中: ${firing
+    .map((k) => ALERT_META[k].label)
+    .join("、")}`;
+  const sub = document.createElement("span");
+  sub.className = "sub";
+  sub.textContent = "解消するまで再通知はされません";
+  banner.append(head, sub);
+}
+
 // ---- 現在値カード ----
 
 const BADGES = {
@@ -154,9 +209,9 @@ function judgeVH(v) {
   return "good";
 }
 
-function makeTile({ label, value, unit, badge }) {
+function makeTile({ label, value, unit, badge, spark, small }) {
   const tile = document.createElement("div");
-  tile.className = "stat-tile";
+  tile.className = small ? "stat-tile sm" : "stat-tile";
   const labelEl = document.createElement("div");
   labelEl.className = "label";
   labelEl.textContent = label;
@@ -170,13 +225,59 @@ function makeTile({ label, value, unit, badge }) {
     valueEl.appendChild(unitEl);
   }
   tile.append(labelEl, valueEl);
-  if (badge) {
-    const badgeEl = document.createElement("div");
-    badgeEl.className = "badge";
-    badgeEl.textContent = BADGES[badge];
-    tile.appendChild(badgeEl);
+  if (badge || spark) {
+    const foot = document.createElement("div");
+    foot.className = "foot";
+    if (badge) {
+      const badgeEl = document.createElement("span");
+      badgeEl.className = `badge b-${badge}`;
+      badgeEl.textContent = BADGES[badge];
+      foot.appendChild(badgeEl);
+    }
+    if (spark) {
+      const canvas = document.createElement("canvas");
+      canvas.className = "spark";
+      foot.appendChild(canvas);
+      // レイアウト確定後に描画
+      requestAnimationFrame(() => drawSparkline(canvas, spark.values, spark.colorVar));
+    }
+    tile.appendChild(foot);
   }
   return tile;
+}
+
+// 12点スパークライン: 線は控えめなグレー、現在値のみ系列色のドット
+function drawSparkline(canvas, values, colorVar) {
+  if (values.length < 2) return;
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = Math.round(rect.width * dpr);
+  canvas.height = Math.round(rect.height * dpr);
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const w = rect.width;
+  const h = rect.height;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const x = (i) => 2 + (i / (values.length - 1)) * (w - 8);
+  const y = (v) => 3 + (1 - (v - min) / (max - min || 1)) * (h - 6);
+  ctx.strokeStyle = cssVar("--text-muted");
+  ctx.lineWidth = 1.5;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  values.forEach((v, i) => (i === 0 ? ctx.moveTo(x(i), y(v)) : ctx.lineTo(x(i), y(v))));
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x(values.length - 1), y(values[values.length - 1]), 2.5, 0, Math.PI * 2);
+  ctx.fillStyle = cssVar(colorVar);
+  ctx.fill();
+}
+
+// 直近3時間(15分×12点)の推移
+function sparkValues(field) {
+  const rows = state.records.slice(-12);
+  return rows.map((r) => r[field]);
 }
 
 function renderCards() {
@@ -190,13 +291,34 @@ function renderCards() {
   const di = discomfortIndex(latest.temp, latest.hum);
   const vh = volumetricHumidity(latest.temp, latest.hum);
 
-  container.append(
-    makeTile({ label: "温度", value: latest.temp.toFixed(1), unit: "℃", badge: judgeTemp(latest.temp, state.config, season) }),
-    makeTile({ label: "湿度", value: String(Math.round(latest.hum)), unit: "%", badge: judgeHum(latest.hum, state.config, season) }),
-    makeTile({ label: "照度", value: latest.lux != null ? String(latest.lux) : "–", unit: "/20" }),
-    makeTile({ label: "不快指数", value: di.toFixed(1), badge: judgeDI(di) }),
-    makeTile({ label: "絶対湿度", value: vh.toFixed(1), unit: "g/m³", badge: judgeVH(vh) })
+  const rowLg = document.createElement("div");
+  rowLg.className = "row-lg";
+  rowLg.append(
+    makeTile({
+      label: "温度",
+      value: latest.temp.toFixed(1),
+      unit: "℃",
+      badge: judgeTemp(latest.temp, state.config, season),
+      spark: { values: sparkValues("temp"), colorVar: "--series-temp" },
+    }),
+    makeTile({
+      label: "湿度",
+      value: String(Math.round(latest.hum)),
+      unit: "%",
+      badge: judgeHum(latest.hum, state.config, season),
+      spark: { values: sparkValues("hum"), colorVar: "--series-hum" },
+    })
   );
+
+  const rowSm = document.createElement("div");
+  rowSm.className = "row-sm";
+  rowSm.append(
+    makeTile({ label: "照度", value: latest.lux != null ? String(latest.lux) : "–", unit: "/20", small: true }),
+    makeTile({ label: "不快指数", value: di.toFixed(1), badge: judgeDI(di), small: true }),
+    makeTile({ label: "絶対湿度", value: vh.toFixed(1), unit: "g/m³", badge: judgeVH(vh), small: true })
+  );
+
+  container.append(rowLg, rowSm);
 
   document.getElementById("season-label").textContent =
     season === "summer" ? "夏モード" : "冬モード";
@@ -383,7 +505,21 @@ class Panel {
       this.drawDot(hx, this.yOf(rows[hoverIndex][opts.field]), color);
     }
 
-    // 終端ドット + 直近値の直接ラベル(選択的ラベル: 終端のみ)
+    // 選択的な直接ラベル: 期間内の最高・最低(終端と重ならない場合のみ)
+    let iMin = 0;
+    let iMax = 0;
+    rows.forEach((r, i) => {
+      if (r[opts.field] < rows[iMin][opts.field]) iMin = i;
+      if (r[opts.field] > rows[iMax][opts.field]) iMax = i;
+    });
+    if (iMax !== rows.length - 1 && rows[iMax][opts.field] !== rows[iMin][opts.field]) {
+      this.drawExtremeLabel(rows[iMax], "above");
+    }
+    if (iMin !== rows.length - 1 && rows[iMax][opts.field] !== rows[iMin][opts.field]) {
+      this.drawExtremeLabel(rows[iMin], "below");
+    }
+
+    // 終端ドット + 直近値の直接ラベル
     const last = rows[rows.length - 1];
     const lx = this.xOf(last.t);
     const ly = this.yOf(last[opts.field]);
@@ -393,6 +529,24 @@ class Panel {
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.fillText(last[opts.field].toFixed(opts.decimals), lx + 9, ly);
+  }
+
+  // 最高/最低値の小さなラベル(surface 色のハローで帯・線上でも読めるようにする)
+  drawExtremeLabel(row, side) {
+    const { ctx, opts } = this;
+    const x = this.xOf(row.t);
+    const y = this.yOf(row[opts.field]);
+    const text = row[opts.field].toFixed(opts.decimals);
+    ctx.font = "10px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = side === "above" ? "bottom" : "top";
+    const ty = side === "above" ? y - 5 : y + 5;
+    const tx = Math.min(Math.max(x, this.pad.left + 12), this.w - this.pad.right - 12);
+    ctx.strokeStyle = cssVar("--surface-1");
+    ctx.lineWidth = 3;
+    ctx.strokeText(text, tx, ty);
+    ctx.fillStyle = cssVar("--text-secondary");
+    ctx.fillText(text, tx, ty);
   }
 
   // 8px ドット + 2px surface ring
@@ -542,11 +696,19 @@ async function main() {
   };
   state.records = await loadRecords();
 
+  if (state.config.roomName) {
+    const title = `${state.config.roomName}環境ダッシュボード`;
+    document.getElementById("page-title").textContent = title;
+    document.title = title;
+  }
+
   if (state.records.length === 0) {
     document.getElementById("empty-state").hidden = false;
     document.getElementById("updated-at").textContent = "";
     return;
   }
+
+  renderBanner(await loadAlertActive(state.records[state.records.length - 1]));
 
   state.charts = [
     new Panel("chart-temp", {

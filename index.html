@@ -15,12 +15,14 @@
 <body>
   <main class="viz-root">
     <header class="page-header">
-      <h1>環境ダッシュボード</h1>
-      <p class="meta">
-        <span id="season-label"></span>
-        <span id="updated-at">読み込み中…</span>
-      </p>
+      <div class="title-row">
+        <h1 id="page-title">環境ダッシュボード</h1>
+        <span class="season-chip" id="season-label"></span>
+      </div>
+      <p class="meta"><span id="updated-at">読み込み中…</span></p>
     </header>
+
+    <div id="alert-banner" class="alert-banner" hidden></div>
 
     <div id="empty-state" class="empty-state" hidden>
       まだデータがありません。GitHub Actions の初回実行後に表示されます。
