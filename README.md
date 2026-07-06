@@ -31,7 +31,7 @@ GitHub Pages (静的サイト)
    |---|---|
    | `SWITCHBOT_TOKEN` | SwitchBot API トークン |
    | `SWITCHBOT_SECRET` | SwitchBot API シークレット |
-   | `HUB2_DEVICE_ID` | HUB2 のデバイスID |
+   | `HUB2_DEVICE_ID` | (任意)HUB2 のデバイスID。未設定なら Hub 2 を自動検出 |
    | `LINE_CHANNEL_TOKEN` | LINE チャネルアクセストークン(未設定なら通知のみスキップ) |
 
 4. **GitHub Pages の有効化**

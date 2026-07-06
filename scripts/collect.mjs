@@ -35,9 +35,10 @@ function switchbotHeaders(token, secret) {
   };
 }
 
-async function fetchDeviceStatus(token, secret, deviceId) {
-  const url = `https://api.switch-bot.com/v1.1/devices/${deviceId}/status`;
-  const res = await fetch(url, { headers: switchbotHeaders(token, secret) });
+async function switchbotGet(token, secret, path) {
+  const res = await fetch(`https://api.switch-bot.com/v1.1${path}`, {
+    headers: switchbotHeaders(token, secret),
+  });
   if (!res.ok) {
     throw new Error(`SwitchBot API HTTP ${res.status}: ${await res.text()}`);
   }
@@ -46,6 +47,21 @@ async function fetchDeviceStatus(token, secret, deviceId) {
     throw new Error(`SwitchBot API error: statusCode=${json.statusCode} message=${json.message}`);
   }
   return json.body;
+}
+
+const fetchDeviceStatus = (token, secret, deviceId) =>
+  switchbotGet(token, secret, `/devices/${deviceId}/status`);
+
+// HUB2_DEVICE_ID 未設定時はデバイス一覧から Hub 2 を自動検出する
+async function discoverHub2(token, secret) {
+  const body = await switchbotGet(token, secret, "/devices");
+  const hub = (body.deviceList ?? []).find((d) => d.deviceType === "Hub 2");
+  if (!hub) {
+    throw new Error("デバイス一覧に Hub 2 が見つかりません。HUB2_DEVICE_ID を設定してください");
+  }
+  // ログにはフルIDを出さない(public リポジトリの Actions ログ対策)
+  console.log(`Hub 2 auto-discovered: ${hub.deviceId.slice(0, 4)}…`);
+  return hub.deviceId;
 }
 
 // ---- 計算指標 ----
@@ -164,13 +180,16 @@ function serializeRecords(records) {
 
 async function main() {
   const { SWITCHBOT_TOKEN, SWITCHBOT_SECRET, HUB2_DEVICE_ID, LINE_CHANNEL_TOKEN } = process.env;
-  if (!SWITCHBOT_TOKEN || !SWITCHBOT_SECRET || !HUB2_DEVICE_ID) {
-    console.error("SWITCHBOT_TOKEN / SWITCHBOT_SECRET / HUB2_DEVICE_ID を設定してください");
+  if (!SWITCHBOT_TOKEN || !SWITCHBOT_SECRET) {
+    console.error("SWITCHBOT_TOKEN / SWITCHBOT_SECRET を設定してください");
     process.exit(1);
   }
 
+  const deviceId =
+    HUB2_DEVICE_ID || (await discoverHub2(SWITCHBOT_TOKEN, SWITCHBOT_SECRET));
+
   const nowMs = Date.now();
-  const status = await fetchDeviceStatus(SWITCHBOT_TOKEN, SWITCHBOT_SECRET, HUB2_DEVICE_ID);
+  const status = await fetchDeviceStatus(SWITCHBOT_TOKEN, SWITCHBOT_SECRET, deviceId);
 
   const temp = Number(status.temperature);
   const hum = Number(status.humidity);
