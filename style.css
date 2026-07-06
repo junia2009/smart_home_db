@@ -54,18 +54,53 @@ body {
   min-height: 100vh;
 }
 
+.page-header .title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .page-header h1 {
-  font-size: 1.25rem;
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.season-chip {
+  font-size: 0.7rem;
   font-weight: 600;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  border-radius: 999px;
+  padding: 2px 10px;
 }
 .page-header .meta {
-  margin-top: 4px;
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
+  margin-top: 3px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }
+
+/* ---- アラートバナー ---- */
+
+.alert-banner {
+  margin-top: 12px;
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  border: 1px solid var(--border);
+}
+.alert-banner .sub {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+.alert-banner.level-good { background: rgba(12, 163, 12, 0.10); }
+.alert-banner.level-warn { background: rgba(250, 178, 25, 0.14); }
+.alert-banner.level-crit { background: rgba(208, 59, 59, 0.12); }
 
 .empty-state {
   margin-top: 24px;
@@ -79,46 +114,75 @@ body {
 
 /* ---- 現在値カード ---- */
 
-.cards {
-  margin-top: 16px;
+.cards { margin-top: 12px; }
+.cards .row-lg {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.cards .row-sm {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
 }
 
 .stat-tile {
   background: var(--surface-1);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px 14px;
+  border-radius: 14px;
+  padding: 10px 12px;
+  min-width: 0;
 }
 .stat-tile .label {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 .stat-tile .value {
-  margin-top: 2px;
-  font-size: 1.6rem;
-  font-weight: 600;
-  line-height: 1.2;
+  margin-top: 1px;
+  font-size: 1.7rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
 }
 .stat-tile .value .unit {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 400;
   color: var(--text-muted);
   margin-left: 2px;
 }
+.stat-tile.sm .value { font-size: 1.15rem; font-weight: 600; }
+.stat-tile .foot {
+  margin-top: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
 .stat-tile .badge {
   display: inline-block;
-  margin-top: 6px;
-  font-size: 0.7rem;
-  color: var(--text-secondary);
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.stat-tile.sm .badge { padding: 1px 6px; }
+.badge.b-good { background: rgba(12, 163, 12, 0.12); }
+.badge.b-warn { background: rgba(250, 178, 25, 0.16); }
+.badge.b-crit { background: rgba(208, 59, 59, 0.14); }
+.stat-tile .spark {
+  width: 64px;
+  height: 20px;
+  flex: none;
 }
 
 /* ---- 期間フィルター(チャートの上に1列) ---- */
 
 .filter-row {
-  margin-top: 20px;
+  margin-top: 14px;
   display: flex;
   gap: 6px;
 }
@@ -165,7 +229,7 @@ body {
 .panel canvas {
   display: block;
   width: 100%;
-  height: 180px;
+  height: 150px;
   touch-action: pan-y;
 }
 
