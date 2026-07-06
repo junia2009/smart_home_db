@@ -52,16 +52,38 @@ async function switchbotGet(token, secret, path) {
 const fetchDeviceStatus = (token, secret, deviceId) =>
   switchbotGet(token, secret, `/devices/${deviceId}/status`);
 
+const fetchDeviceList = (token, secret) =>
+  switchbotGet(token, secret, "/devices").then((b) => b.deviceList ?? []);
+
 // HUB2_DEVICE_ID 未設定時はデバイス一覧から Hub 2 を自動検出する
-async function discoverHub2(token, secret) {
-  const body = await switchbotGet(token, secret, "/devices");
-  const hub = (body.deviceList ?? []).find((d) => d.deviceType === "Hub 2");
+function findHub2(deviceList) {
+  const hub = deviceList.find((d) => d.deviceType === "Hub 2");
   if (!hub) {
     throw new Error("デバイス一覧に Hub 2 が見つかりません。HUB2_DEVICE_ID を設定してください");
   }
   // ログにはフルIDを出さない(public リポジトリの Actions ログ対策)
   console.log(`Hub 2 auto-discovered: ${hub.deviceId.slice(0, 4)}…`);
   return hub.deviceId;
+}
+
+// プラグ Mini の現在消費電力を取得(1台も無ければ空配列)。
+// デバイス名(アプリで設定した表示名)だけを記録し、IDは残さない
+async function collectPlugs(token, secret, deviceList) {
+  const plugs = [];
+  for (const d of deviceList) {
+    if (!/^Plug/.test(d.deviceType ?? "")) continue;
+    try {
+      const s = await fetchDeviceStatus(token, secret, d.deviceId);
+      plugs.push({
+        name: d.deviceName,
+        w: Math.round(Number(s.weight ?? 0) * 10) / 10,
+        on: s.power === "on",
+      });
+    } catch (err) {
+      console.warn(`プラグ ${d.deviceName} の取得に失敗: ${err.message}`);
+    }
+  }
+  return plugs;
 }
 
 // ---- 計算指標 ----
@@ -185,8 +207,8 @@ async function main() {
     process.exit(1);
   }
 
-  const deviceId =
-    HUB2_DEVICE_ID || (await discoverHub2(SWITCHBOT_TOKEN, SWITCHBOT_SECRET));
+  const deviceList = await fetchDeviceList(SWITCHBOT_TOKEN, SWITCHBOT_SECRET);
+  const deviceId = HUB2_DEVICE_ID || findHub2(deviceList);
 
   const nowMs = Date.now();
   const status = await fetchDeviceStatus(SWITCHBOT_TOKEN, SWITCHBOT_SECRET, deviceId);
@@ -211,6 +233,16 @@ async function main() {
   records.push(record);
   await writeFile(monthFile, serializeRecords(records));
   console.log(`recorded: ${JSON.stringify(record)} -> ${path.basename(monthFile)}`);
+
+  // プラグ Mini の消費電力ログ(デバイスがある場合のみ)
+  const plugs = await collectPlugs(SWITCHBOT_TOKEN, SWITCHBOT_SECRET, deviceList);
+  if (plugs.length > 0) {
+    const powerFile = path.join(DATA_DIR, `power-${monthFileName(nowMs)}`);
+    const powerRecords = await readJsonOr(powerFile, []);
+    powerRecords.push({ t: record.t, plugs });
+    await writeFile(powerFile, serializeRecords(powerRecords));
+    console.log(`power: ${JSON.stringify(plugs)} -> ${path.basename(powerFile)}`);
+  }
 
   // アラート判定
   const metrics = {

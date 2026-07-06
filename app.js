@@ -16,6 +16,7 @@ const state = {
   range: "24h",
   config: null,
   records: [], // 選択期間より広めに読み込んだ全レコード
+  power: [], // プラグ Mini の電力レコード(無ければ空)
   plot: [], // 描画用(期間フィルタ + バケット平均済み)
   hoverIndex: null,
   charts: [],
@@ -89,6 +90,70 @@ function generateDemoData() {
     });
   }
   return records;
+}
+
+// ---- 消費電力(プラグ Mini、データがある場合のみ) ----
+
+async function loadPowerRecords() {
+  if (new URLSearchParams(location.search).has("demo")) {
+    return generateDemoPower();
+  }
+  const now = Date.now();
+  const start = now - RANGES["30d"].hours * 3600 * 1000;
+  const keys = monthKeysBetween(start, now);
+  const files = await Promise.all(keys.map((k) => fetchJson(`data/power-${k}.json`)));
+  const records = files.filter(Boolean).flat();
+  records.sort((a, b) => a.t - b.t);
+  return records;
+}
+
+function generateDemoPower() {
+  const records = [];
+  const now = Math.floor(Date.now() / 1000);
+  for (let t = now - 7 * 24 * 3600; t <= now; t += 900) {
+    const hour = new Date(t * 1000).getHours();
+    const on = hour >= 8 && hour < 23;
+    const w = on ? 420 + Math.round(Math.sin(t / 5000) * 180) : 1.2;
+    records.push({ t, plugs: [{ name: "エアコン", w, on }] });
+  }
+  return records;
+}
+
+function totalWatts(rec) {
+  return rec.plugs.reduce((sum, p) => sum + (p.w || 0), 0);
+}
+
+// その日の電気代(円)。15分サンプルなので W × 0.25h を積算して kWh に換算
+function dayYen(records, dayKey) {
+  const yenPerKwh = state.config.power?.yenPerKwh ?? 31;
+  let wh = 0;
+  for (const r of records) {
+    const d = new Date(r.t * 1000);
+    if (`${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}` !== dayKey) continue;
+    wh += totalWatts(r) * 0.25;
+  }
+  return (wh / 1000) * yenPerKwh;
+}
+
+function renderPowerTiles(container) {
+  if (state.power.length === 0) return;
+  const latest = state.power[state.power.length - 1];
+  const now = new Date();
+  const todayKey = `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()}`;
+  const yen = dayYen(state.power, todayKey);
+  const row = document.createElement("div");
+  row.className = "row-sm";
+  row.append(
+    makeTile({ label: "消費電力", value: String(Math.round(totalWatts(latest))), unit: "W", small: true }),
+    makeTile({ label: "今日の電気代", value: yen.toFixed(0), unit: "円", small: true }),
+    makeTile({
+      label: "プラグ",
+      value: latest.plugs.filter((p) => p.on).length + "/" + latest.plugs.length,
+      unit: "ON",
+      small: true,
+    })
+  );
+  container.appendChild(row);
 }
 
 // 期間で絞り、点数が多すぎる場合は等間隔バケットの平均に集約する
@@ -319,6 +384,7 @@ function renderCards() {
   );
 
   container.append(rowLg, rowSm);
+  renderPowerTiles(container);
 
   document.getElementById("season-label").textContent =
     season === "summer" ? "夏モード" : "冬モード";
@@ -671,15 +737,24 @@ function renderDailySummary() {
   const days = dailySummary(state.records);
   if (days.length === 0) return;
   section.hidden = false;
+  const hasPower = state.power.length > 0;
+  if (hasPower && !section.querySelector("th.power-col")) {
+    const th = document.createElement("th");
+    th.className = "power-col";
+    th.textContent = "電気代";
+    section.querySelector("thead tr").appendChild(th);
+  }
   const tbody = section.querySelector("tbody");
   tbody.replaceChildren();
   for (const day of days) {
     const tr = document.createElement("tr");
+    const dayKey = `${day.date.getFullYear()}/${day.date.getMonth() + 1}/${day.date.getDate()}`;
     const cells = [
       `${day.date.getMonth() + 1}/${day.date.getDate()}(${WEEKDAYS[day.date.getDay()]})`,
       `${day.tMin.toFixed(1)} / ${(day.tSum / day.n).toFixed(1)} / ${day.tMax.toFixed(1)}`,
       `${Math.round(day.hMin)} / ${Math.round(day.hSum / day.n)} / ${Math.round(day.hMax)}`,
     ];
+    if (hasPower) cells.push(`${dayYen(state.power, dayKey).toFixed(0)}円`);
     for (const c of cells) {
       const td = document.createElement("td");
       td.textContent = c;
@@ -742,7 +817,7 @@ async function main() {
       winter: { tempHigh: 26, tempLow: 18, humHigh: 60, humLow: 40, diHigh: null, vhLow: 7 },
     },
   };
-  state.records = await loadRecords();
+  [state.records, state.power] = await Promise.all([loadRecords(), loadPowerRecords()]);
 
   if (state.config.roomName) {
     const title = `${state.config.roomName}環境ダッシュボード`;
