@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#fcfcfb" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a1a19" media="(prefers-color-scheme: dark)">
+  <title>環境ダッシュボード</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="viz-root">
+    <header class="page-header">
+      <h1>環境ダッシュボード</h1>
+      <p class="meta">
+        <span id="season-label"></span>
+        <span id="updated-at">読み込み中…</span>
+      </p>
+    </header>
+
+    <div id="empty-state" class="empty-state" hidden>
+      まだデータがありません。GitHub Actions の初回実行後に表示されます。
+    </div>
+
+    <section class="cards" id="cards" aria-label="現在値"></section>
+
+    <nav class="filter-row" aria-label="表示期間">
+      <button type="button" class="range-btn" data-range="24h">24時間</button>
+      <button type="button" class="range-btn" data-range="7d">7日</button>
+      <button type="button" class="range-btn" data-range="30d">30日</button>
+    </nav>
+
+    <section class="chart-card" aria-label="温度と湿度の推移">
+      <figure class="panel">
+        <figcaption>温度 <span class="unit">℃</span></figcaption>
+        <div class="canvas-wrap"><canvas id="chart-temp"></canvas></div>
+      </figure>
+      <figure class="panel">
+        <figcaption>湿度 <span class="unit">%</span></figcaption>
+        <div class="canvas-wrap"><canvas id="chart-hum"></canvas></div>
+      </figure>
+      <div id="tooltip" class="tooltip" hidden></div>
+    </section>
+
+    <details class="table-view">
+      <summary>データ表(直近の記録)</summary>
+      <div class="table-scroll">
+        <table id="data-table">
+          <thead>
+            <tr><th>日時</th><th>温度 ℃</th><th>湿度 %</th><th>照度</th><th>不快指数</th><th>絶対湿度 g/m³</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </details>
+
+    <footer class="page-footer">
+      <p>SwitchBot HUB2 · 15分間隔で自動記録</p>
+    </footer>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

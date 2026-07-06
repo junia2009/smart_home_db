@@ -1,0 +1,250 @@
+#!/usr/bin/env node
+// SwitchBot HUB2 の現在値を取得して data/YYYY-MM.json に追記し、
+// 閾値超過時に LINE Messaging API で通知する。GitHub Actions から15分毎に実行される。
+//
+// 必要な環境変数:
+//   SWITCHBOT_TOKEN, SWITCHBOT_SECRET, HUB2_DEVICE_ID
+//   LINE_CHANNEL_TOKEN (未設定の場合は通知をスキップ)
+
+import { createHmac, randomUUID } from "node:crypto";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const DATA_DIR = path.join(ROOT, "data");
+const STATE_FILE = path.join(DATA_DIR, "alert-state.json");
+
+const config = JSON.parse(await readFile(path.join(ROOT, "config.json"), "utf8"));
+
+// ---- SwitchBot API v1.1 ----
+
+function switchbotHeaders(token, secret) {
+  const t = Date.now().toString();
+  const nonce = randomUUID();
+  const sign = createHmac("sha256", secret)
+    .update(token + t + nonce)
+    .digest("base64")
+    .toUpperCase();
+  return {
+    Authorization: token,
+    sign,
+    t,
+    nonce,
+    "Content-Type": "application/json",
+  };
+}
+
+async function switchbotGet(token, secret, path) {
+  const res = await fetch(`https://api.switch-bot.com/v1.1${path}`, {
+    headers: switchbotHeaders(token, secret),
+  });
+  if (!res.ok) {
+    throw new Error(`SwitchBot API HTTP ${res.status}: ${await res.text()}`);
+  }
+  const json = await res.json();
+  if (json.statusCode !== 100) {
+    throw new Error(`SwitchBot API error: statusCode=${json.statusCode} message=${json.message}`);
+  }
+  return json.body;
+}
+
+const fetchDeviceStatus = (token, secret, deviceId) =>
+  switchbotGet(token, secret, `/devices/${deviceId}/status`);
+
+// HUB2_DEVICE_ID 未設定時はデバイス一覧から Hub 2 を自動検出する
+async function discoverHub2(token, secret) {
+  const body = await switchbotGet(token, secret, "/devices");
+  const hub = (body.deviceList ?? []).find((d) => d.deviceType === "Hub 2");
+  if (!hub) {
+    throw new Error("デバイス一覧に Hub 2 が見つかりません。HUB2_DEVICE_ID を設定してください");
+  }
+  // ログにはフルIDを出さない(public リポジトリの Actions ログ対策)
+  console.log(`Hub 2 auto-discovered: ${hub.deviceId.slice(0, 4)}…`);
+  return hub.deviceId;
+}
+
+// ---- 計算指標 ----
+
+// 不快指数 DI = 0.81T + 0.01H(0.99T - 14.3) + 46.3
+export function discomfortIndex(t, h) {
+  return 0.81 * t + 0.01 * h * (0.99 * t - 14.3) + 46.3;
+}
+
+// 絶対湿度 VH (g/m³) = 217 × e / (T + 273.15)
+// e = 6.1078 × 10^(7.5T / (T + 237.3)) × RH / 100
+export function volumetricHumidity(t, rh) {
+  const e = 6.1078 * Math.pow(10, (7.5 * t) / (t + 237.3)) * (rh / 100);
+  return (217 * e) / (t + 273.15);
+}
+
+// ---- 季節判定・アラート ----
+
+function localDate(nowMs) {
+  return new Date(nowMs + config.timezoneOffsetHours * 3600 * 1000);
+}
+
+export function currentSeason(nowMs) {
+  const month = localDate(nowMs).getUTCMonth() + 1;
+  return config.seasons.summerMonths.includes(month) ? "summer" : "winter";
+}
+
+// 各アラートの判定関数。value が閾値を超えていれば通知メッセージを返す。
+// 閾値が null のモードでは判定しない(仕様書 §6)。
+const ALERT_RULES = [
+  {
+    key: "tempHigh",
+    test: (m, th) => th.tempHigh != null && m.temp > th.tempHigh,
+    message: (m) => `室温${m.temp.toFixed(1)}℃。エアコンの確認を`,
+  },
+  {
+    key: "tempLow",
+    test: (m, th) => th.tempLow != null && m.temp < th.tempLow,
+    message: (m) => `室温${m.temp.toFixed(1)}℃。暖房の確認を`,
+  },
+  {
+    key: "humHigh",
+    test: (m, th) => th.humHigh != null && m.hum > th.humHigh,
+    message: (m) => `湿度${Math.round(m.hum)}%。カビ・あせも注意`,
+  },
+  {
+    key: "humLow",
+    test: (m, th) => th.humLow != null && m.hum < th.humLow,
+    message: (m) => `湿度${Math.round(m.hum)}%。加湿推奨`,
+  },
+  {
+    key: "diHigh",
+    test: (m, th) => th.diHigh != null && m.di >= th.diHigh,
+    message: (m) => `不快指数${Math.round(m.di)}。熱中症注意`,
+  },
+  {
+    key: "vhLow",
+    test: (m, th) => th.vhLow != null && m.vh < th.vhLow,
+    message: (m) => `乾燥しています(${m.vh.toFixed(1)}g/m³)`,
+  },
+];
+
+export function evaluateAlerts(metrics, season, prevActive) {
+  const th = config.thresholds[season];
+  const active = {};
+  const newMessages = [];
+  for (const rule of ALERT_RULES) {
+    const firing = rule.test(metrics, th);
+    active[rule.key] = firing;
+    // 「解消 → 再発生」まで再送しない: 前回も発火していたら通知しない
+    if (firing && !prevActive[rule.key]) {
+      newMessages.push(rule.message(metrics));
+    }
+  }
+  return { active, newMessages };
+}
+
+// ---- LINE 通知 ----
+
+async function lineBroadcast(channelToken, text) {
+  const res = await fetch("https://api.line.me/v2/bot/message/broadcast", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${channelToken}`,
+    },
+    body: JSON.stringify({ messages: [{ type: "text", text }] }),
+  });
+  if (!res.ok) {
+    throw new Error(`LINE API HTTP ${res.status}: ${await res.text()}`);
+  }
+}
+
+// ---- データ保存 ----
+
+async function readJsonOr(file, fallback) {
+  try {
+    return JSON.parse(await readFile(file, "utf8"));
+  } catch {
+    return fallback;
+  }
+}
+
+export function monthFileName(nowMs) {
+  const d = localDate(nowMs);
+  const ym = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  return `${ym}.json`;
+}
+
+// 月別 JSON は1レコード1行で保持し、diff とファイルサイズを最小に保つ
+function serializeRecords(records) {
+  return "[\n" + records.map((r) => JSON.stringify(r)).join(",\n") + "\n]\n";
+}
+
+// ---- main ----
+
+async function main() {
+  const { SWITCHBOT_TOKEN, SWITCHBOT_SECRET, HUB2_DEVICE_ID, LINE_CHANNEL_TOKEN } = process.env;
+  if (!SWITCHBOT_TOKEN || !SWITCHBOT_SECRET) {
+    console.error("SWITCHBOT_TOKEN / SWITCHBOT_SECRET を設定してください");
+    process.exit(1);
+  }
+
+  const deviceId =
+    HUB2_DEVICE_ID || (await discoverHub2(SWITCHBOT_TOKEN, SWITCHBOT_SECRET));
+
+  const nowMs = Date.now();
+  const status = await fetchDeviceStatus(SWITCHBOT_TOKEN, SWITCHBOT_SECRET, deviceId);
+
+  const temp = Number(status.temperature);
+  const hum = Number(status.humidity);
+  const lux = Number(status.lightLevel);
+  if (!Number.isFinite(temp) || !Number.isFinite(hum)) {
+    throw new Error(`不正な測定値: ${JSON.stringify(status)}`);
+  }
+
+  const record = {
+    t: Math.floor(nowMs / 1000),
+    temp,
+    hum,
+    lux: Number.isFinite(lux) ? lux : null,
+  };
+
+  await mkdir(DATA_DIR, { recursive: true });
+  const monthFile = path.join(DATA_DIR, monthFileName(nowMs));
+  const records = await readJsonOr(monthFile, []);
+  records.push(record);
+  await writeFile(monthFile, serializeRecords(records));
+  console.log(`recorded: ${JSON.stringify(record)} -> ${path.basename(monthFile)}`);
+
+  // アラート判定
+  const metrics = {
+    temp,
+    hum,
+    di: discomfortIndex(temp, hum),
+    vh: volumetricHumidity(temp, hum),
+  };
+  const season = currentSeason(nowMs);
+  const state = await readJsonOr(STATE_FILE, { active: {} });
+  const { active, newMessages } = evaluateAlerts(metrics, season, state.active ?? {});
+
+  await writeFile(
+    STATE_FILE,
+    JSON.stringify({ active, updatedAt: record.t, season }, null, 2) + "\n"
+  );
+
+  if (newMessages.length === 0) {
+    console.log(`alerts: none new (season=${season})`);
+    return;
+  }
+
+  const text = `【赤ちゃん部屋アラート】\n` + newMessages.map((m) => `・${m}`).join("\n");
+  console.log(`alerts: ${JSON.stringify(newMessages)}`);
+
+  if (!LINE_CHANNEL_TOKEN) {
+    console.warn("LINE_CHANNEL_TOKEN 未設定のため通知をスキップします");
+    return;
+  }
+  await lineBroadcast(LINE_CHANNEL_TOKEN, text);
+  console.log("LINE broadcast sent");
+}
+
+// テストから import できるよう、直接実行時のみ main を走らせる
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  await main();
+}
