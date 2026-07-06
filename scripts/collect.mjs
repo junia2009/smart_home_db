@@ -227,7 +227,8 @@ async function main() {
   if (newMessages.length === 0) {
     console.log(`alerts: none new (season=${season})`);
   } else {
-    const text = `【赤ちゃん部屋アラート】\n` + newMessages.map((m) => `・${m}`).join("\n");
+    const title = config.alertTitle ?? "【環境アラート】";
+    const text = `${title}\n` + newMessages.map((m) => `・${m}`).join("\n");
     console.log(`alerts: ${JSON.stringify(newMessages)}`);
 
     if (!LINE_CHANNEL_TOKEN) {
