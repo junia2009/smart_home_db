@@ -898,7 +898,30 @@ async function main() {
 }
 
 if ("serviceWorker" in navigator && !new URLSearchParams(location.search).has("demo")) {
-  navigator.serviceWorker.register("sw.js").catch(() => {});
+  navigator.serviceWorker
+    .register("sw.js", { updateViaCache: "none" })
+    .then((reg) => {
+      // PWA がフォアグラウンドに戻るたびに新しい SW が無いかチェックする
+      // (iOS はプロセスが生きている間、自発的に更新チェックしないため)
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") reg.update().catch(() => {});
+      });
+    })
+    .catch(() => {});
+
+  // 新しい SW がページの制御を握ったら一度だけリロードして最新シェルに切り替える
+  let hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController) {
+      // 初回インストール時(まだ旧バージョンは無い)はリロード不要
+      hadController = true;
+      return;
+    }
+    if (reloaded) return;
+    reloaded = true;
+    location.reload();
+  });
 }
 
 main();

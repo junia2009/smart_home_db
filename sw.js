@@ -1,8 +1,9 @@
 /* Service Worker
- * アプリシェルは cache-first、data/*.json と config.json は network-first
- * (オフライン時はキャッシュ済みの直近データにフォールバック)。
+ * 全リクエスト network-first: オンラインなら常に最新を配信し、
+ * 取得成功時にキャッシュを更新。オフライン時のみキャッシュにフォールバック。
+ * (シェルを cache-first にすると新バージョンが届かない問題があったため)
  */
-const CACHE = "env-dashboard-v5";
+const CACHE = "env-dashboard-v6";
 const SHELL = [
   "./",
   "index.html",
@@ -29,26 +30,26 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+async function networkFirst(request) {
+  const cache = await caches.open(CACHE);
+  try {
+    const res = await fetch(request);
+    if (res.ok) cache.put(request, res.clone());
+    return res;
+  } catch (err) {
+    const hit = await cache.match(request);
+    if (hit) return hit;
+    // ナビゲーションはトップページにフォールバック(オフライン起動用)
+    if (request.mode === "navigate") {
+      const top = await cache.match("./");
+      if (top) return top;
+    }
+    throw err;
+  }
+}
+
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (event.request.method !== "GET" || url.origin !== location.origin) return;
-
-  const isData = /\/data\/.*\.json$|\/config\.json$/.test(url.pathname);
-  if (isData) {
-    // network-first: 最新データを優先し、失敗時のみキャッシュ
-    event.respondWith(
-      fetch(event.request)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((cache) => cache.put(event.request, copy));
-          return res;
-        })
-        .catch(() => caches.match(event.request))
-    );
-  } else {
-    // cache-first: アプリシェル
-    event.respondWith(
-      caches.match(event.request).then((hit) => hit ?? fetch(event.request))
-    );
-  }
+  event.respondWith(networkFirst(event.request));
 });
