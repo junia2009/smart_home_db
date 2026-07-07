@@ -123,6 +123,14 @@ function totalWatts(rec) {
   return rec.plugs.reduce((sum, p) => sum + (p.w || 0), 0);
 }
 
+// 電気代の表示: 少額(10円未満)は小数1桁で見せ、消費があるのに 0 円と
+// 誤解されないようにする。ちょうど0のときだけ「0」。
+function formatYen(yen) {
+  if (yen === 0) return "0";
+  if (yen < 10) return yen.toFixed(yen < 1 ? 2 : 1);
+  return String(Math.round(yen));
+}
+
 // その日の電気代(円)。15分サンプルなので W × 0.25h を積算して kWh に換算
 function dayYen(records, dayKey) {
   const yenPerKwh = state.config.power?.yenPerKwh ?? 31;
@@ -145,7 +153,7 @@ function renderPowerTiles(container) {
   row.className = "row-sm";
   row.append(
     makeTile({ label: "消費電力", value: String(Math.round(totalWatts(latest))), unit: "W", small: true }),
-    makeTile({ label: "今日の電気代", value: yen.toFixed(0), unit: "円", small: true }),
+    makeTile({ label: "今日の電気代", value: formatYen(yen), unit: "円", small: true }),
     makeTile({
       label: "プラグ",
       value: latest.plugs.filter((p) => p.on).length + "/" + latest.plugs.length,
@@ -826,7 +834,7 @@ function renderDailySummary() {
       `${day.tMin.toFixed(1)} / ${(day.tSum / day.n).toFixed(1)} / ${day.tMax.toFixed(1)}`,
       `${Math.round(day.hMin)} / ${Math.round(day.hSum / day.n)} / ${Math.round(day.hMax)}`,
     ];
-    if (hasPower) cells.push(`${dayYen(state.power, dayKey).toFixed(0)}円`);
+    if (hasPower) cells.push(`${formatYen(dayYen(state.power, dayKey))}円`);
     for (const c of cells) {
       const td = document.createElement("td");
       td.textContent = c;
