@@ -52,8 +52,11 @@ GitHub Actions の cron は間引き・遅延が大きい(実測で30〜60分間
    - Method: `POST` / Body: `{"ref":"main"}`
    - Headers: `Authorization: Bearer <PAT>` / `Accept: application/vnd.github+json`
    - スケジュール: 15分ごと
-3. GitHub 側の cron(毎時9分)は外部スケジューラ停止時のフォールバック
-4. 二重起動時は収集スクリプト側の重複ガード(前回記録から300秒未満はスキップ)が効く
+
+GitHub Actions の cron トリガーは使わない(間引きが大きいため)。起動は
+外部スケジューラ一本で、手動実行は Actions タブの「Run workflow」で行える。
+念のため、二重起動時は収集スクリプト側の重複ガード(前回記録から300秒未満は
+スキップ)が効く。
 
 ## アラート仕様
 
