@@ -192,15 +192,35 @@ body::before {
   font-size: 0.85rem;
   font-weight: 600;
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 8px 10px;
   flex-wrap: wrap;
   border-left-width: 3px;
 }
+.alert-banner .alert-head { flex: 1 1 auto; min-width: 0; }
 .alert-banner .sub {
   font-size: 0.75rem;
   font-weight: 400;
   color: var(--text-secondary);
+}
+.alert-dismiss {
+  margin-left: auto;
+  flex: none;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-primary);
+  padding: 5px 14px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.alert-dismiss:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--baseline);
 }
 .alert-banner.level-good {
   border-left-color: var(--status-good);
