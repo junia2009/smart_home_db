@@ -3,6 +3,7 @@
   "alertTitle": "【リビング環境アラート】",
   "reportTitle": "【リビング環境レポート】",
   "dailyReport": { "enabled": true, "hour": 7 },
+  "renotifyHours": 3,
   "power": { "yenPerKwh": 31 },
   "timezoneOffsetHours": 9,
   "seasons": {

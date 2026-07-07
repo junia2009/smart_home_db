@@ -146,19 +146,40 @@ const ALERT_RULES = [
   },
 ];
 
-export function evaluateAlerts(metrics, season, prevActive) {
+// 継続中アラートの再通知間隔(秒)。config の renotifyHours、既定3時間。
+// 0 以下なら継続中の再通知は無効(「解消→再発生」時のみ通知)。
+function renotifySec() {
+  const h = config.renotifyHours ?? 3;
+  return h > 0 ? h * 3600 : Infinity;
+}
+
+// prevLastNotified: { key: 最終通知UNIX秒 }、nowSec: 今回の記録時刻(秒)
+export function evaluateAlerts(metrics, season, prevActive, prevLastNotified = {}, nowSec = Math.floor(Date.now() / 1000)) {
   const th = config.thresholds[season];
+  const interval = renotifySec();
   const active = {};
+  const lastNotified = {};
   const newMessages = [];
+  const notifiedKeys = [];
   for (const rule of ALERT_RULES) {
     const firing = rule.test(metrics, th);
     active[rule.key] = firing;
-    // 「解消 → 再発生」まで再送しない: 前回も発火していたら通知しない
-    if (firing && !prevActive[rule.key]) {
+    if (!firing) continue;
+
+    const isNew = !prevActive[rule.key];                       // 解消→再発生
+    const prevAt = prevLastNotified[rule.key];
+    const dueReminder = prevAt != null && nowSec - prevAt >= interval; // 継続中の再通知
+
+    if (isNew || dueReminder) {
       newMessages.push(rule.message(metrics));
+      notifiedKeys.push(rule.key);
+      lastNotified[rule.key] = nowSec;                          // 通知したので時刻更新
+    } else {
+      // 継続中で今回は通知しない: 最終通知時刻を引き継ぐ
+      lastNotified[rule.key] = prevAt ?? nowSec;
     }
   }
-  return { active, newMessages };
+  return { active, lastNotified, newMessages, notifiedKeys };
 }
 
 // ---- 定時レポート ----
@@ -297,7 +318,10 @@ async function main() {
   const season = currentSeason(nowMs);
   const state = await readJsonOr(STATE_FILE, { active: {} });
   const prevActive = state.active ?? {};
-  const { active, newMessages } = evaluateAlerts(metrics, season, prevActive);
+  const prevLastNotified = state.lastNotified ?? {};
+  const { active, lastNotified, newMessages, notifiedKeys } = evaluateAlerts(
+    metrics, season, prevActive, prevLastNotified, record.t
+  );
 
   if (newMessages.length === 0) {
     console.log(`alerts: none new (season=${season})`);
@@ -313,11 +337,13 @@ async function main() {
         await lineBroadcast(LINE_CHANNEL_TOKEN, text);
         console.log("LINE broadcast sent");
       } catch (err) {
-        // 通知失敗でも測定データの記録は保持する。新規発火分を未発火扱いに
-        // 戻して次回実行時に再送を試み、ジョブ自体は失敗としてマークする
+        // 通知失敗でも測定データの記録は保持する。通知した扱いの状態を元に戻して
+        // 次回実行で再送を試み、ジョブ自体は失敗としてマークする
         console.error(`LINE通知に失敗: ${err.message}`);
-        for (const rule of ALERT_RULES) {
-          if (active[rule.key] && !prevActive[rule.key]) active[rule.key] = false;
+        for (const key of notifiedKeys) {
+          active[key] = prevActive[key] ?? false;
+          if (prevLastNotified[key] == null) delete lastNotified[key];
+          else lastNotified[key] = prevLastNotified[key];
         }
         process.exitCode = 1;
       }
@@ -346,7 +372,7 @@ async function main() {
 
   await writeFile(
     STATE_FILE,
-    JSON.stringify({ active, lastReport, updatedAt: record.t, season }, null, 2) + "\n"
+    JSON.stringify({ active, lastNotified, lastReport, updatedAt: record.t, season }, null, 2) + "\n"
   );
 }
 

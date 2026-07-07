@@ -219,21 +219,32 @@ async function loadAlertActive(latest) {
   };
 }
 
-const ACK_KEY = "alertAck";
+const ACK_KEY = "alertSnooze";
 
 // 発火中アラートの署名(種類の集合)。この署名が変われば別状態として再表示する
 function alertSignature(firing) {
   return firing.slice().sort().join(",");
 }
 
+function renotifySec() {
+  const h = state.config?.renotifyHours ?? 3;
+  return h > 0 ? h * 3600 : Infinity;
+}
+
+// 解除(スヌーズ)記録の読み書き: { sig, until }(until は再表示するUNIX秒)
+function readSnooze() {
+  try { return JSON.parse(localStorage.getItem(ACK_KEY) || "null"); } catch { return null; }
+}
+
 function renderBanner(active) {
   const banner = document.getElementById("alert-banner");
   banner.hidden = false;
+  banner.classList.remove("dismissing");
   banner.replaceChildren();
   const firing = Object.keys(ALERT_META).filter((k) => active[k]);
 
   if (firing.length === 0) {
-    // 全て適正に戻ったら解除記録をクリア(次の発火は必ず表示される)
+    // 全て適正に戻ったらスヌーズ記録をクリア(次の発火は必ず表示される)
     try { localStorage.removeItem(ACK_KEY); } catch {}
     banner.className = "alert-banner level-good";
     banner.textContent = "✅ すべて適正範囲です";
@@ -241,11 +252,10 @@ function renderBanner(active) {
   }
 
   const signature = alertSignature(firing);
-  // 同じ内容のアラートを解除済みなら非表示(端末ローカル)。
-  // 種類が増減・変化すれば署名が変わり自動で再表示される。
-  let acked = null;
-  try { acked = localStorage.getItem(ACK_KEY); } catch {}
-  if (acked === signature) {
+  const now = Date.now() / 1000;
+  const snooze = readSnooze();
+  // 同じ内容のアラートをスヌーズ中(期限内)なら非表示。期限切れ・署名変化で再表示。
+  if (snooze && snooze.sig === signature && now < snooze.until) {
     banner.hidden = true;
     return;
   }
@@ -259,16 +269,18 @@ function renderBanner(active) {
     .map((k) => ALERT_META[k].label)
     .join("、")}`;
 
+  const hours = state.config?.renotifyHours ?? 3;
   const sub = document.createElement("span");
   sub.className = "sub";
-  sub.textContent = "解消するまで再通知はされません";
+  sub.textContent = `解除しても${hours}時間後に再表示します`;
 
   const dismiss = document.createElement("button");
   dismiss.type = "button";
   dismiss.className = "alert-dismiss";
   dismiss.textContent = "解除";
   dismiss.addEventListener("click", () => {
-    try { localStorage.setItem(ACK_KEY, signature); } catch {}
+    const until = Date.now() / 1000 + renotifySec();
+    try { localStorage.setItem(ACK_KEY, JSON.stringify({ sig: signature, until })); } catch {}
     // フェードアウトしてから非表示に(即時反映)
     banner.classList.add("dismissing");
     setTimeout(() => {
@@ -869,11 +881,19 @@ async function refreshData() {
 
   state.plot = buildPlotData();
   state.hoverIndex = null;
-  renderBanner(await loadAlertActive(state.records[state.records.length - 1]));
+  state.alertActive = await loadAlertActive(state.records[state.records.length - 1]);
+  renderBanner(state.alertActive);
   renderCards();
   drawCharts();
   renderDailySummary();
   renderTable();
+
+  // アプリを開いたままでもスヌーズ期限が切れたらバナーを再表示する
+  if (!state.snoozeTimer) {
+    state.snoozeTimer = setInterval(() => {
+      if (state.alertActive) renderBanner(state.alertActive);
+    }, 60_000);
+  }
 }
 
 function setupRefreshButton() {
