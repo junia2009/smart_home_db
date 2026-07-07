@@ -265,6 +265,14 @@ async function main() {
   await mkdir(DATA_DIR, { recursive: true });
   const monthFile = path.join(DATA_DIR, monthFileName(nowMs));
   const records = await readJsonOr(monthFile, []);
+
+  // 外部スケジューラとフォールバック cron が近接して二重起動した場合の重複ガード
+  const last = records[records.length - 1];
+  if (last && record.t - last.t < 300) {
+    console.log(`skip: last record is ${record.t - last.t}s old (< 300s)`);
+    return;
+  }
+
   records.push(record);
   await writeFile(monthFile, serializeRecords(records));
   console.log(`recorded: ${JSON.stringify(record)} -> ${path.basename(monthFile)}`);

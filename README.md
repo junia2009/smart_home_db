@@ -40,6 +40,21 @@ GitHub Pages (静的サイト)
    Actions タブから `collect` を手動実行(workflow_dispatch)し、
    `data/` に月別 JSON がコミットされることを確認。
 
+## スケジューリング
+
+GitHub Actions の cron は間引き・遅延が大きい(実測で30〜60分間隔になる)ため、
+15分間隔の起動は**外部スケジューラから `workflow_dispatch` を叩く**方式にしている。
+
+1. GitHub で fine-grained PAT を発行
+   (対象: このリポジトリのみ / Repository permissions → Actions: **Read and write**)
+2. [cron-job.org](https://cron-job.org) にジョブを作成
+   - URL: `https://api.github.com/repos/<owner>/<repo>/actions/workflows/collect.yml/dispatches`
+   - Method: `POST` / Body: `{"ref":"main"}`
+   - Headers: `Authorization: Bearer <PAT>` / `Accept: application/vnd.github+json`
+   - スケジュール: 15分ごと
+3. GitHub 側の cron(毎時9分)は外部スケジューラ停止時のフォールバック
+4. 二重起動時は収集スクリプト側の重複ガード(前回記録から300秒未満はスキップ)が効く
+
 ## アラート仕様
 
 季節モード(夏: 5〜10月 / 冬: 11〜4月)で閾値を自動切替。
