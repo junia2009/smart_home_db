@@ -1,11 +1,8 @@
 name: collect
 
 on:
-  schedule:
-    # 15分間隔の起動は外部スケジューラ(cron-job.org)が workflow_dispatch で行う。
-    # GitHub cron は間引き・遅延が大きいため、外部が止まった場合の
-    # 毎時フォールバックとしてのみ残す
-    - cron: "9 * * * *"
+  # 起動は外部スケジューラ(cron-job.org)が workflow_dispatch API で行う。
+  # GitHub cron は間引き・遅延が大きいため使わない(手動起動も workflow_dispatch)。
   workflow_dispatch:
 
 permissions:
