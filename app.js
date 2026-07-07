@@ -300,29 +300,38 @@ const BADGES = {
   crit: "🔴 警戒",
 };
 
+// カードのバッジはアラートと同一基準(閾値 + ALERT_META のレベル)で判定する。
+// 「バッジに色が付く ⟺ そのアラートが発火する条件」となり、表示と通知が常に一致する。
+function judgeByAlerts(checks) {
+  let level = "good";
+  for (const c of checks) {
+    if (!c.over) continue;
+    if (ALERT_META[c.key].level === "crit") return "crit";
+    level = "warn";
+  }
+  return level;
+}
 function judgeTemp(v, config, season) {
-  const [lo, hi] = config.comfort.temp;
   const th = config.thresholds[season];
-  if ((th.tempHigh != null && v > th.tempHigh) || (th.tempLow != null && v < th.tempLow)) return "crit";
-  if (v < lo || v > hi) return "warn";
-  return "good";
+  return judgeByAlerts([
+    { key: "tempHigh", over: th.tempHigh != null && v > th.tempHigh },
+    { key: "tempLow", over: th.tempLow != null && v < th.tempLow },
+  ]);
 }
 function judgeHum(v, config, season) {
-  const [lo, hi] = config.comfort.hum;
   const th = config.thresholds[season];
-  if ((th.humHigh != null && v > th.humHigh) || (th.humLow != null && v < th.humLow)) return "crit";
-  if (v < lo || v > hi) return "warn";
-  return "good";
+  return judgeByAlerts([
+    { key: "humHigh", over: th.humHigh != null && v > th.humHigh },
+    { key: "humLow", over: th.humLow != null && v < th.humLow },
+  ]);
 }
-function judgeDI(v) {
-  if (v >= 80) return "crit";
-  if (v >= 75) return "warn";
-  return "good";
+function judgeDI(v, config, season) {
+  const th = config.thresholds[season];
+  return judgeByAlerts([{ key: "diHigh", over: th.diHigh != null && v >= th.diHigh }]);
 }
-function judgeVH(v) {
-  if (v < 7) return "crit";
-  if (v < 10) return "warn";
-  return "good";
+function judgeVH(v, config, season) {
+  const th = config.thresholds[season];
+  return judgeByAlerts([{ key: "vhLow", over: th.vhLow != null && v < th.vhLow }]);
 }
 
 function makeTile({ label, value, unit, badge, spark, small }) {
@@ -430,8 +439,8 @@ function renderCards() {
   rowSm.className = "row-sm";
   rowSm.append(
     makeTile({ label: "照度", value: latest.lux != null ? String(latest.lux) : "–", unit: "/20", small: true }),
-    makeTile({ label: "不快指数", value: di.toFixed(1), badge: judgeDI(di), small: true }),
-    makeTile({ label: "絶対湿度", value: vh.toFixed(1), unit: "g/m³", badge: judgeVH(vh), small: true })
+    makeTile({ label: "不快指数", value: di.toFixed(1), badge: judgeDI(di, state.config, season), small: true }),
+    makeTile({ label: "絶対湿度", value: vh.toFixed(1), unit: "g/m³", badge: judgeVH(vh, state.config, season), small: true })
   );
 
   container.append(rowLg, rowSm);
@@ -508,7 +517,7 @@ class Panel {
   constructor(canvasId, opts) {
     this.canvas = document.getElementById(canvasId);
     this.ctx = this.canvas.getContext("2d");
-    this.opts = opts; // { field, colorVar, comfort, showXLabels, decimals }
+    this.opts = opts; // { field, colorVar, band:{low,high}, showXLabels, decimals }
     this.pad = { left: 38, right: 44, top: 10, bottom: opts.showXLabels ? 22 : 8 };
   }
 
@@ -542,20 +551,24 @@ class Panel {
     const now = Date.now() / 1000;
     this.domain = { start: now - RANGES[state.range].hours * 3600, end: now };
 
-    let vMin = Math.min(...values, opts.comfort[0]);
-    let vMax = Math.max(...values, opts.comfort[1]);
+    // アラートが出ない安全ゾーン(= バッジ・通知と同じ閾値)を帯で示す
+    const band = opts.band;
+    const extras = [band.low, band.high].filter((v) => v != null);
+    let vMin = Math.min(...values, ...extras);
+    let vMax = Math.max(...values, ...extras);
     const margin = (vMax - vMin) * 0.1 || 1;
     const { lo, hi, ticks } = niceTicks(vMin - margin, vMax + margin, 4);
     this.yDomain = { lo, hi };
 
     const plotRight = this.w - this.pad.right;
 
-    // 推奨レンジ帯(系列色の薄い wash)
+    // 安全ゾーン帯(系列色の薄い wash)。境界が null(その向きに閾値なし)なら
+    // グラフ端まで伸ばす
     ctx.save();
     ctx.globalAlpha = 0.08;
     ctx.fillStyle = color;
-    const bandTop = this.yOf(opts.comfort[1]);
-    const bandBottom = this.yOf(opts.comfort[0]);
+    const bandTop = band.high != null ? this.yOf(band.high) : this.pad.top;
+    const bandBottom = band.low != null ? this.yOf(band.low) : this.h - this.pad.bottom;
     ctx.fillRect(this.pad.left, bandTop, plotRight - this.pad.left, bandBottom - bandTop);
     ctx.restore();
 
@@ -922,9 +935,8 @@ function setupRefreshButton() {
 async function main() {
   state.config = (await fetchJson("config.json")) ?? {
     seasons: { summerMonths: [5, 6, 7, 8, 9, 10] },
-    comfort: { temp: [20, 26], hum: [40, 60] },
     thresholds: {
-      summer: { tempHigh: 28, tempLow: 22, humHigh: 65, humLow: null, diHigh: 80, vhLow: null },
+      summer: { tempHigh: 28, tempLow: 22, humHigh: 75, humLow: null, diHigh: 80, vhLow: null },
       winter: { tempHigh: 26, tempLow: 18, humHigh: 60, humLow: 40, diHigh: null, vhLow: 7 },
     },
   };
@@ -935,18 +947,20 @@ async function main() {
     document.title = title;
   }
 
+  // グラフの帯はアラート閾値(現在の季節)= バッジ・通知と同一基準
+  const th = state.config.thresholds[currentSeason(new Date(), state.config)];
   state.charts = [
     new Panel("chart-temp", {
       field: "temp",
       colorVar: "--series-temp",
-      comfort: state.config.comfort.temp,
+      band: { low: th.tempLow, high: th.tempHigh },
       showXLabels: false,
       decimals: 1,
     }),
     new Panel("chart-hum", {
       field: "hum",
       colorVar: "--series-hum",
-      comfort: state.config.comfort.hum,
+      band: { low: th.humLow, high: th.humHigh },
       showXLabels: true,
       decimals: 0,
     }),
