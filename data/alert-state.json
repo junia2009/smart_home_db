@@ -7,7 +7,10 @@
     "diHigh": false,
     "vhLow": false
   },
+  "lastNotified": {
+    "humHigh": 1783402241
+  },
   "lastReport": "2026-07-07",
-  "updatedAt": 1783401316,
+  "updatedAt": 1783402241,
   "season": "summer"
 }
