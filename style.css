@@ -5,6 +5,9 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* display を指定した要素では [hidden] 属性が効かなくなるため明示的に無効化 */
+[hidden] { display: none !important; }
+
 .viz-root {
   /* 面と文字 */
   --surface-1: #0d1a25;             /* Canvas のリング・ハロー用の不透明ベース */
@@ -196,7 +199,9 @@ body::before {
   gap: 8px 10px;
   flex-wrap: wrap;
   border-left-width: 3px;
+  transition: opacity 0.16s ease;
 }
+.alert-banner.dismissing { opacity: 0; }
 .alert-banner .alert-head { flex: 1 1 auto; min-width: 0; }
 .alert-banner .sub {
   font-size: 0.75rem;

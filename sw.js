@@ -3,7 +3,7 @@
  * 取得成功時にキャッシュを更新。オフライン時のみキャッシュにフォールバック。
  * (シェルを cache-first にすると新バージョンが届かない問題があったため)
  */
-const CACHE = "env-dashboard-v8";
+const CACHE = "env-dashboard-v9";
 const SHELL = [
   "./",
   "index.html",

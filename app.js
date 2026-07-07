@@ -269,7 +269,12 @@ function renderBanner(active) {
   dismiss.textContent = "解除";
   dismiss.addEventListener("click", () => {
     try { localStorage.setItem(ACK_KEY, signature); } catch {}
-    banner.hidden = true;
+    // フェードアウトしてから非表示に(即時反映)
+    banner.classList.add("dismissing");
+    setTimeout(() => {
+      banner.hidden = true;
+      banner.classList.remove("dismissing");
+    }, 170);
   });
 
   banner.append(head, sub, dismiss);
