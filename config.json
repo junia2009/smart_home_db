@@ -9,10 +9,6 @@
   "seasons": {
     "summerMonths": [5, 6, 7, 8, 9, 10]
   },
-  "comfort": {
-    "temp": [20, 26],
-    "hum": [40, 60]
-  },
   "thresholds": {
     "summer": {
       "tempHigh": 28,
