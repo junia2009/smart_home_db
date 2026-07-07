@@ -545,11 +545,14 @@ class Panel {
     ctx.lineTo(plotRight, Math.round(this.h - this.pad.bottom) + 0.5);
     ctx.stroke();
 
-    // データ線(2px, round join)
+    // データ線(2px, round join)+ HUD のネオングロー
+    ctx.save();
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 8;
     ctx.beginPath();
     rows.forEach((r, i) => {
       const x = this.xOf(r.t);
@@ -558,6 +561,7 @@ class Panel {
       else ctx.lineTo(x, y);
     });
     ctx.stroke();
+    ctx.restore();
 
     // クロスヘア + ホバー点
     if (hoverIndex != null && rows[hoverIndex]) {
@@ -615,17 +619,21 @@ class Panel {
     ctx.fillText(text, tx, ty);
   }
 
-  // 8px ドット + 2px surface ring
+  // 8px ドット + 2px surface ring(+ HUD グロー)
   drawDot(x, y, color) {
     const { ctx } = this;
     ctx.beginPath();
     ctx.arc(x, y, 6, 0, Math.PI * 2);
     ctx.fillStyle = cssVar("--surface-1");
     ctx.fill();
+    ctx.save();
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 10;
     ctx.beginPath();
     ctx.arc(x, y, 4, 0, Math.PI * 2);
     ctx.fillStyle = color;
     ctx.fill();
+    ctx.restore();
   }
 }
 

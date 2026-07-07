@@ -1,11 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- フルブリード: ホーム画面側で角丸マスクされる前提。中央60%が安全域 -->
-  <rect width="512" height="512" fill="#2a78d6"/>
-  <!-- 温度計 -->
-  <rect x="188" y="120" width="52" height="200" rx="26" fill="none" stroke="#ffffff" stroke-width="22"/>
-  <circle cx="214" cy="352" r="56" fill="none" stroke="#ffffff" stroke-width="22"/>
-  <circle cx="214" cy="352" r="26" fill="#ffffff"/>
-  <rect x="203" y="230" width="22" height="110" fill="#ffffff"/>
-  <!-- 水滴 -->
-  <path d="M340 196c26 38 41 64 41 86a41 41 0 0 1-82 0c0-22 15-48 41-86z" fill="#ffffff"/>
+  <!-- STARK HUD アイコン: 暗い基調 + アークリアクターのシアンリング -->
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="75%">
+      <stop offset="0%" stop-color="#0e2233"/>
+      <stop offset="100%" stop-color="#060b12"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <!-- アークリング -->
+  <circle cx="256" cy="256" r="188" fill="none" stroke="#35c8ff" stroke-width="6" opacity="0.35"/>
+  <circle cx="256" cy="256" r="168" fill="none" stroke="#35c8ff" stroke-width="3" opacity="0.6" stroke-dasharray="6 14"/>
+  <!-- 温度計(ゴールド) -->
+  <rect x="196" y="120" width="46" height="196" rx="23" fill="none" stroke="#ffb64d" stroke-width="18"/>
+  <circle cx="219" cy="348" r="50" fill="none" stroke="#ffb64d" stroke-width="18"/>
+  <circle cx="219" cy="348" r="24" fill="#ffb64d"/>
+  <rect x="209" y="226" width="20" height="120" fill="#ffb64d"/>
+  <!-- 水滴(シアン) -->
+  <path d="M336 198c25 36 39 61 39 82a39 39 0 0 1-78 0c0-21 14-46 39-82z" fill="#35c8ff"/>
 </svg>
