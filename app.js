@@ -219,26 +219,60 @@ async function loadAlertActive(latest) {
   };
 }
 
+const ACK_KEY = "alertAck";
+
+// 発火中アラートの署名(種類の集合)。この署名が変われば別状態として再表示する
+function alertSignature(firing) {
+  return firing.slice().sort().join(",");
+}
+
 function renderBanner(active) {
   const banner = document.getElementById("alert-banner");
   banner.hidden = false;
   banner.replaceChildren();
   const firing = Object.keys(ALERT_META).filter((k) => active[k]);
+
   if (firing.length === 0) {
+    // 全て適正に戻ったら解除記録をクリア(次の発火は必ず表示される)
+    try { localStorage.removeItem(ACK_KEY); } catch {}
     banner.className = "alert-banner level-good";
     banner.textContent = "✅ すべて適正範囲です";
     return;
   }
+
+  const signature = alertSignature(firing);
+  // 同じ内容のアラートを解除済みなら非表示(端末ローカル)。
+  // 種類が増減・変化すれば署名が変わり自動で再表示される。
+  let acked = null;
+  try { acked = localStorage.getItem(ACK_KEY); } catch {}
+  if (acked === signature) {
+    banner.hidden = true;
+    return;
+  }
+
   const worst = firing.some((k) => ALERT_META[k].level === "crit") ? "crit" : "warn";
   banner.className = `alert-banner level-${worst}`;
+
   const head = document.createElement("span");
+  head.className = "alert-head";
   head.textContent = `${worst === "crit" ? "🔴" : "⚠️"} アラート発火中: ${firing
     .map((k) => ALERT_META[k].label)
     .join("、")}`;
+
   const sub = document.createElement("span");
   sub.className = "sub";
   sub.textContent = "解消するまで再通知はされません";
-  banner.append(head, sub);
+
+  const dismiss = document.createElement("button");
+  dismiss.type = "button";
+  dismiss.className = "alert-dismiss";
+  dismiss.textContent = "解除";
+  dismiss.addEventListener("click", () => {
+    try { localStorage.setItem(ACK_KEY, signature); } catch {}
+    banner.hidden = true;
+  });
+
+  banner.append(head, sub, dismiss);
 }
 
 // ---- 現在値カード ----
