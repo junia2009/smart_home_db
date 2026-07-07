@@ -78,7 +78,13 @@ Actions タブからの手動実行を兼ねる)。
 | 絶対湿度 | — | < 7 g/m³ | 「乾燥しています(6.1g/m³)」 |
 
 通知タイトルは `config.json` の `alertTitle`(例: `【リビング環境アラート】`)。
-同一アラートは「解消 → 再発生」まで再送しない(状態は `data/alert-state.json` で管理)。
+アラート状態は `data/alert-state.json` で管理。同一アラートは以下のタイミングで通知:
+
+- **解消 → 再発生** した時
+- **継続中は `renotifyHours` 間隔**(既定3時間)で再通知(リマインド)
+
+ダッシュボードの「解除」ボタンも同じ間隔のスヌーズで、押すと `renotifyHours`
+時間だけバナーを非表示にし、まだ継続していれば再表示する(端末ローカル)。
 
 ## 定時レポート・電力ログ
 
@@ -147,6 +153,7 @@ python3 -m http.server 8000
 | `alertTitle` | アラート通知のタイトル |
 | `reportTitle` | 定時レポートのタイトル |
 | `dailyReport` | `{ enabled, hour }` 定時レポートの有効化と送信時刻 |
+| `renotifyHours` | 継続中アラートの再通知/再表示間隔(時間)。0以下で無効 |
 | `power.yenPerKwh` | 電気代換算の単価(円/kWh) |
 | `timezoneOffsetHours` | タイムゾーン(JST = 9) |
 | `seasons.summerMonths` | 夏モードの月 |
