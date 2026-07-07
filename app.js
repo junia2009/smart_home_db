@@ -806,6 +806,50 @@ function setupRangeButtons() {
   }
 }
 
+// ---- データ更新 ----
+
+// 最新の JSON を再取得して全面再描画する(初回ロードと更新ボタンで共用)
+async function refreshData() {
+  [state.records, state.power] = await Promise.all([loadRecords(), loadPowerRecords()]);
+  state.lastFetch = Date.now();
+
+  const empty = state.records.length === 0;
+  document.getElementById("empty-state").hidden = !empty;
+  if (empty) {
+    document.getElementById("updated-at").textContent = "";
+    return;
+  }
+
+  state.plot = buildPlotData();
+  state.hoverIndex = null;
+  renderBanner(await loadAlertActive(state.records[state.records.length - 1]));
+  renderCards();
+  drawCharts();
+  renderDailySummary();
+  renderTable();
+}
+
+function setupRefreshButton() {
+  const btn = document.getElementById("refresh-btn");
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    btn.classList.add("loading");
+    try {
+      await refreshData();
+    } finally {
+      btn.disabled = false;
+      btn.classList.remove("loading");
+    }
+  });
+
+  // PWA がバックグラウンドから復帰したとき、1分以上経っていれば自動更新
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && Date.now() - (state.lastFetch ?? 0) > 60_000) {
+      refreshData();
+    }
+  });
+}
+
 // ---- 起動 ----
 
 async function main() {
@@ -817,21 +861,12 @@ async function main() {
       winter: { tempHigh: 26, tempLow: 18, humHigh: 60, humLow: 40, diHigh: null, vhLow: 7 },
     },
   };
-  [state.records, state.power] = await Promise.all([loadRecords(), loadPowerRecords()]);
 
   if (state.config.roomName) {
     const title = `${state.config.roomName}環境ダッシュボード`;
     document.getElementById("page-title").textContent = title;
     document.title = title;
   }
-
-  if (state.records.length === 0) {
-    document.getElementById("empty-state").hidden = false;
-    document.getElementById("updated-at").textContent = "";
-    return;
-  }
-
-  renderBanner(await loadAlertActive(state.records[state.records.length - 1]));
 
   state.charts = [
     new Panel("chart-temp", {
@@ -850,19 +885,16 @@ async function main() {
     }),
   ];
 
-  state.plot = buildPlotData();
-  renderCards();
-  drawCharts();
-  renderDailySummary();
-  renderTable();
   setupRangeButtons();
   setupHover();
-
+  setupRefreshButton();
   window.addEventListener("resize", drawCharts);
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
     drawCharts();
     renderCards();
   });
+
+  await refreshData();
 }
 
 if ("serviceWorker" in navigator && !new URLSearchParams(location.search).has("demo")) {
