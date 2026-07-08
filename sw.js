@@ -3,12 +3,13 @@
  * 取得成功時にキャッシュを更新。オフライン時のみキャッシュにフォールバック。
  * (シェルを cache-first にすると新バージョンが届かない問題があったため)
  */
-const CACHE = "env-dashboard-v12";
+const CACHE = "env-dashboard-v13";
 const SHELL = [
   "./",
   "index.html",
   "style.css",
   "app.js",
+  "alerts.mjs",
   "manifest.webmanifest",
   "icons/icon.svg",
   "icons/icon-192.png",

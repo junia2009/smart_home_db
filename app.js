@@ -1,9 +1,18 @@
-/* 環境ダッシュボード
+/* 環境ダッシュボード(ES モジュール)
  * data/YYYY-MM.json を fetch して現在値カードと温度・湿度の推移
  * (時間軸を共有した2段パネル)を Canvas で描画する。依存ライブラリなし。
+ * アラート判定は collect.mjs と共通の alerts.mjs を使う(表示と通知の同一基準)。
  * ?demo=1 でサンプルデータ表示(開発・動作確認用)。
  */
-"use strict";
+import {
+  discomfortIndex,
+  volumetricHumidity,
+  buildMetrics,
+  seasonOf,
+  ALERT_RULES,
+  RULES_BY_KEY,
+  evaluateActive,
+} from "./alerts.mjs";
 
 const RANGES = {
   "24h": { hours: 24, label: "24時間" },
@@ -22,30 +31,30 @@ const state = {
   charts: [],
 };
 
-// ---- 計算指標(collect.mjs と同式) ----
-
-function discomfortIndex(t, h) {
-  return 0.81 * t + 0.01 * h * (0.99 * t - 14.3) + 46.3;
-}
-function volumetricHumidity(t, rh) {
-  const e = 6.1078 * Math.pow(10, (7.5 * t) / (t + 237.3)) * (rh / 100);
-  return (217 * e) / (t + 273.15);
+// 季節判定は config のタイムゾーン基準(データファイルの月区切りと同じ)
+function tzHours() {
+  return state.config?.timezoneOffsetHours ?? 9;
 }
 
 function currentSeason(date, config) {
-  return config.seasons.summerMonths.includes(date.getMonth() + 1) ? "summer" : "winter";
+  const month = new Date(date.getTime() + tzHours() * 3600 * 1000).getUTCMonth() + 1;
+  return seasonOf(month, config.seasons.summerMonths);
 }
 
 // ---- データ読み込み ----
 
+// 月キーはファイル名の月区切り(config のタイムゾーン)で計算する。
+// ブラウザのローカル時刻を使うと、JST 以外の端末で月替わり直後に
+// 最新ファイルを読み損ねる
 function monthKeysBetween(startMs, endMs) {
+  const shift = tzHours() * 3600 * 1000;
   const keys = [];
-  const d = new Date(startMs);
-  d.setDate(1);
-  d.setHours(0, 0, 0, 0);
-  while (d.getTime() <= endMs) {
-    keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
-    d.setMonth(d.getMonth() + 1);
+  const d = new Date(startMs + shift);
+  d.setUTCDate(1);
+  d.setUTCHours(0, 0, 0, 0);
+  while (d.getTime() <= endMs + shift) {
+    keys.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`);
+    d.setUTCMonth(d.getUTCMonth() + 1);
   }
   return keys;
 }
@@ -131,14 +140,19 @@ function formatYen(yen) {
   return String(Math.round(yen));
 }
 
-// その日の電気代(円)。15分サンプルなので W × 0.25h を積算して kWh に換算
+// その日の電気代(円)。サンプル間隔を一定とみなさず、次の記録までの実時間で
+// W を積分する(欠測で間隔が開いた区間は30分を上限に打ち切り、最終レコードは
+// 標準間隔の15分とみなす)
 function dayYen(records, dayKey) {
   const yenPerKwh = state.config.power?.yenPerKwh ?? 31;
   let wh = 0;
-  for (const r of records) {
+  for (let i = 0; i < records.length; i++) {
+    const r = records[i];
     const d = new Date(r.t * 1000);
     if (`${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}` !== dayKey) continue;
-    wh += totalWatts(r) * 0.25;
+    const next = records[i + 1];
+    const dtSec = Math.min(next ? next.t - r.t : 900, 1800);
+    wh += totalWatts(r) * (dtSec / 3600);
   }
   return (wh / 1000) * yenPerKwh;
 }
@@ -196,17 +210,8 @@ function buildPlotData() {
 
 // ---- アラート状態バナー ----
 
-const ALERT_META = {
-  tempHigh: { label: "室温が高い", level: "crit" },
-  tempLow: { label: "室温が低い", level: "crit" },
-  humHigh: { label: "湿度が高い", level: "warn" },
-  humLow: { label: "湿度が低い", level: "warn" },
-  diHigh: { label: "不快指数が高い", level: "crit" },
-  vhLow: { label: "乾燥している", level: "warn" },
-};
-
 // Actions がコミットする alert-state.json を読む。demo 時や取得失敗時は
-// 最新値からクライアント側で同じ判定を行う
+// 最新値からクライアント側で同じ判定(alerts.mjs)を行う
 async function loadAlertActive(latest) {
   if (!new URLSearchParams(location.search).has("demo")) {
     const alertState = await fetchJson("data/alert-state.json");
@@ -214,17 +219,7 @@ async function loadAlertActive(latest) {
   }
   if (!latest) return {};
   const season = currentSeason(new Date(latest.t * 1000), state.config);
-  const th = state.config.thresholds[season];
-  const di = discomfortIndex(latest.temp, latest.hum);
-  const vh = volumetricHumidity(latest.temp, latest.hum);
-  return {
-    tempHigh: th.tempHigh != null && latest.temp > th.tempHigh,
-    tempLow: th.tempLow != null && latest.temp < th.tempLow,
-    humHigh: th.humHigh != null && latest.hum > th.humHigh,
-    humLow: th.humLow != null && latest.hum < th.humLow,
-    diHigh: th.diHigh != null && di >= th.diHigh,
-    vhLow: th.vhLow != null && vh < th.vhLow,
-  };
+  return evaluateActive(buildMetrics(latest.temp, latest.hum), state.config.thresholds[season]);
 }
 
 const ACK_KEY = "alertSnooze";
@@ -249,7 +244,7 @@ function renderBanner(active) {
   banner.hidden = false;
   banner.classList.remove("dismissing");
   banner.replaceChildren();
-  const firing = Object.keys(ALERT_META).filter((k) => active[k]);
+  const firing = ALERT_RULES.filter((r) => active[r.key]).map((r) => r.key);
 
   if (firing.length === 0) {
     // 全て適正に戻ったらスヌーズ記録をクリア(次の発火は必ず表示される)
@@ -268,13 +263,13 @@ function renderBanner(active) {
     return;
   }
 
-  const worst = firing.some((k) => ALERT_META[k].level === "crit") ? "crit" : "warn";
+  const worst = firing.some((k) => RULES_BY_KEY[k].level === "crit") ? "crit" : "warn";
   banner.className = `alert-banner level-${worst}`;
 
   const head = document.createElement("span");
   head.className = "alert-head";
   head.textContent = `${worst === "crit" ? "🔴" : "⚠️"} アラート発火中: ${firing
-    .map((k) => ALERT_META[k].label)
+    .map((k) => RULES_BY_KEY[k].label)
     .join("、")}`;
 
   const hours = state.config?.renotifyHours ?? 3;
@@ -308,38 +303,17 @@ const BADGES = {
   crit: "🔴 警戒",
 };
 
-// カードのバッジはアラートと同一基準(閾値 + ALERT_META のレベル)で判定する。
+// カードのバッジはアラートと同一基準(alerts.mjs の判定 + level)。
 // 「バッジに色が付く ⟺ そのアラートが発火する条件」となり、表示と通知が常に一致する。
-function judgeByAlerts(checks) {
+// keys: そのカードに関係するアラートキー(例: 温度なら tempHigh / tempLow)
+function badgeLevel(active, keys) {
   let level = "good";
-  for (const c of checks) {
-    if (!c.over) continue;
-    if (ALERT_META[c.key].level === "crit") return "crit";
+  for (const k of keys) {
+    if (!active[k]) continue;
+    if (RULES_BY_KEY[k].level === "crit") return "crit";
     level = "warn";
   }
   return level;
-}
-function judgeTemp(v, config, season) {
-  const th = config.thresholds[season];
-  return judgeByAlerts([
-    { key: "tempHigh", over: th.tempHigh != null && v > th.tempHigh },
-    { key: "tempLow", over: th.tempLow != null && v < th.tempLow },
-  ]);
-}
-function judgeHum(v, config, season) {
-  const th = config.thresholds[season];
-  return judgeByAlerts([
-    { key: "humHigh", over: th.humHigh != null && v > th.humHigh },
-    { key: "humLow", over: th.humLow != null && v < th.humLow },
-  ]);
-}
-function judgeDI(v, config, season) {
-  const th = config.thresholds[season];
-  return judgeByAlerts([{ key: "diHigh", over: th.diHigh != null && v >= th.diHigh }]);
-}
-function judgeVH(v, config, season) {
-  const th = config.thresholds[season];
-  return judgeByAlerts([{ key: "vhLow", over: th.vhLow != null && v < th.vhLow }]);
 }
 
 function makeTile({ label, value, unit, badge, spark, small }) {
@@ -421,8 +395,8 @@ function renderCards() {
 
   const date = new Date(latest.t * 1000);
   const season = currentSeason(date, state.config);
-  const di = discomfortIndex(latest.temp, latest.hum);
-  const vh = volumetricHumidity(latest.temp, latest.hum);
+  const metrics = buildMetrics(latest.temp, latest.hum);
+  const active = evaluateActive(metrics, state.config.thresholds[season]);
 
   const rowLg = document.createElement("div");
   rowLg.className = "row-lg";
@@ -431,14 +405,14 @@ function renderCards() {
       label: "温度",
       value: latest.temp.toFixed(1),
       unit: "℃",
-      badge: judgeTemp(latest.temp, state.config, season),
+      badge: badgeLevel(active, ["tempHigh", "tempLow"]),
       spark: { values: sparkValues("temp"), colorVar: "--series-temp" },
     }),
     makeTile({
       label: "湿度",
       value: String(Math.round(latest.hum)),
       unit: "%",
-      badge: judgeHum(latest.hum, state.config, season),
+      badge: badgeLevel(active, ["humHigh", "humLow"]),
       spark: { values: sparkValues("hum"), colorVar: "--series-hum" },
     })
   );
@@ -446,9 +420,10 @@ function renderCards() {
   const rowSm = document.createElement("div");
   rowSm.className = "row-sm";
   rowSm.append(
-    makeTile({ label: "照度", value: latest.lux != null ? String(latest.lux) : "–", unit: "/20", small: true }),
-    makeTile({ label: "不快指数", value: di.toFixed(1), badge: judgeDI(di, state.config, season), small: true }),
-    makeTile({ label: "絶対湿度", value: vh.toFixed(1), unit: "g/m³", badge: judgeVH(vh, state.config, season), small: true })
+    // SwitchBot の lightLevel は 1〜20 の段階値(ルクスではない)
+    makeTile({ label: "明るさ", value: latest.lux != null ? String(latest.lux) : "–", unit: "/20", small: true }),
+    makeTile({ label: "不快指数", value: metrics.di.toFixed(1), badge: badgeLevel(active, ["diHigh"]), small: true }),
+    makeTile({ label: "絶対湿度", value: metrics.vh.toFixed(1), unit: "g/m³", badge: badgeLevel(active, ["vhLow"]), small: true })
   );
 
   container.append(rowLg, rowSm);

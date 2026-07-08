@@ -10,6 +10,10 @@ import { createHmac, randomUUID } from "node:crypto";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ALERT_RULES, buildMetrics, seasonOf } from "../alerts.mjs";
+
+// 判定式はフロントと共通(alerts.mjs)。テスト互換のため再 export する
+export { discomfortIndex, volumetricHumidity } from "../alerts.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DATA_DIR = path.join(ROOT, "data");
@@ -86,20 +90,6 @@ async function collectPlugs(token, secret, deviceList) {
   return plugs;
 }
 
-// ---- 計算指標 ----
-
-// 不快指数 DI = 0.81T + 0.01H(0.99T - 14.3) + 46.3
-export function discomfortIndex(t, h) {
-  return 0.81 * t + 0.01 * h * (0.99 * t - 14.3) + 46.3;
-}
-
-// 絶対湿度 VH (g/m³) = 217 × e / (T + 273.15)
-// e = 6.1078 × 10^(7.5T / (T + 237.3)) × RH / 100
-export function volumetricHumidity(t, rh) {
-  const e = 6.1078 * Math.pow(10, (7.5 * t) / (t + 237.3)) * (rh / 100);
-  return (217 * e) / (t + 273.15);
-}
-
 // ---- 季節判定・アラート ----
 
 // 引数の既定値は config.json 由来。テストからは明示的に渡して純関数として使える
@@ -112,44 +102,8 @@ export function currentSeason(
   summerMonths = config.seasons.summerMonths,
   tzHours = config.timezoneOffsetHours
 ) {
-  const month = localDate(nowMs, tzHours).getUTCMonth() + 1;
-  return summerMonths.includes(month) ? "summer" : "winter";
+  return seasonOf(localDate(nowMs, tzHours).getUTCMonth() + 1, summerMonths);
 }
-
-// 各アラートの判定関数。value が閾値を超えていれば通知メッセージを返す。
-// 閾値が null のモードでは判定しない(仕様書 §6)。
-const ALERT_RULES = [
-  {
-    key: "tempHigh",
-    test: (m, th) => th.tempHigh != null && m.temp > th.tempHigh,
-    message: (m) => `室温${m.temp.toFixed(1)}℃。エアコンの確認を`,
-  },
-  {
-    key: "tempLow",
-    test: (m, th) => th.tempLow != null && m.temp < th.tempLow,
-    message: (m) => `室温${m.temp.toFixed(1)}℃。暖房の確認を`,
-  },
-  {
-    key: "humHigh",
-    test: (m, th) => th.humHigh != null && m.hum > th.humHigh,
-    message: (m) => `湿度${Math.round(m.hum)}%。カビ・あせも注意`,
-  },
-  {
-    key: "humLow",
-    test: (m, th) => th.humLow != null && m.hum < th.humLow,
-    message: (m) => `湿度${Math.round(m.hum)}%。加湿推奨`,
-  },
-  {
-    key: "diHigh",
-    test: (m, th) => th.diHigh != null && m.di >= th.diHigh,
-    message: (m) => `不快指数${Math.round(m.di)}。熱中症注意`,
-  },
-  {
-    key: "vhLow",
-    test: (m, th) => th.vhLow != null && m.vh < th.vhLow,
-    message: (m) => `乾燥しています(${m.vh.toFixed(1)}g/m³)`,
-  },
-];
 
 // th: そのモードの閾値オブジェクト(config.thresholds[season])
 // prevLastNotified: { key: 最終通知UNIX秒 }、nowSec: 今回の記録時刻(秒)
@@ -175,15 +129,16 @@ export function evaluateAlerts(
 
     const isNew = !prevActive[rule.key];                       // 解消→再発生
     const prevAt = prevLastNotified[rule.key];
+    const owed = !isNew && prevAt == null;                     // 継続中なのに通知記録がない = 前回送信に失敗 → 再送
     const dueReminder = prevAt != null && nowSec - prevAt >= interval; // 継続中の再通知
 
-    if (isNew || dueReminder) {
+    if (isNew || owed || dueReminder) {
       newMessages.push(rule.message(metrics));
       notifiedKeys.push(rule.key);
       lastNotified[rule.key] = nowSec;                          // 通知したので時刻更新
     } else {
       // 継続中で今回は通知しない: 最終通知時刻を引き継ぐ
-      lastNotified[rule.key] = prevAt ?? nowSec;
+      lastNotified[rule.key] = prevAt;
     }
   }
   return { active, lastNotified, newMessages, notifiedKeys };
@@ -196,15 +151,6 @@ export function localDayKey(nowMs, tzHours = config.timezoneOffsetHours) {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
-const ALERT_LABELS = {
-  tempHigh: "室温高",
-  tempLow: "室温低",
-  humHigh: "湿度高",
-  humLow: "湿度低",
-  diHigh: "不快指数",
-  vhLow: "乾燥",
-};
-
 export function buildDailyReport(records, metrics, active, title = config.reportTitle ?? "【環境レポート】") {
   const now = records[records.length - 1];
   const recent = records.filter((r) => r.t >= now.t - 86400);
@@ -212,13 +158,13 @@ export function buildDailyReport(records, metrics, active, title = config.report
   const tMax = Math.max(...recent.map((r) => r.temp));
   const hMin = Math.min(...recent.map((r) => r.hum));
   const hMax = Math.max(...recent.map((r) => r.hum));
-  const firing = Object.keys(ALERT_LABELS).filter((k) => active[k]);
+  const firing = ALERT_RULES.filter((r) => active[r.key]).map((r) => r.shortLabel);
   return [
     title,
     `現在: ${now.temp.toFixed(1)}℃ / ${Math.round(now.hum)}%(不快指数${Math.round(metrics.di)})`,
     `過去24時間: 温度 ${tMin.toFixed(1)}〜${tMax.toFixed(1)}℃ / 湿度 ${Math.round(hMin)}〜${Math.round(hMax)}%`,
     firing.length > 0
-      ? `⚠️ アラート発火中: ${firing.map((k) => ALERT_LABELS[k]).join("、")}`
+      ? `⚠️ アラート発火中: ${firing.join("、")}`
       : `アラート: なし`,
   ].join("\n");
 }
@@ -255,6 +201,12 @@ export function monthFileName(nowMs, tzHours = config.timezoneOffsetHours) {
   return `${ym}.json`;
 }
 
+// ローカル月の「前月内」を指す時刻(前月ファイル名の算出用)。
+// 当月の日数 + 1 日戻せば、月末が31日でも必ず前月に入る
+export function prevMonthMs(nowMs, tzHours = config.timezoneOffsetHours) {
+  return nowMs - (localDate(nowMs, tzHours).getUTCDate() + 1) * 86400 * 1000;
+}
+
 // 月別 JSON は1レコード1行で保持し、diff とファイルサイズを最小に保つ
 function serializeRecords(records) {
   return "[\n" + records.map((r) => JSON.stringify(r)).join(",\n") + "\n]\n";
@@ -277,6 +229,7 @@ async function main() {
 
   const temp = Number(status.temperature);
   const hum = Number(status.humidity);
+  // lightLevel は 1〜20 の段階値でルクスではない(キー名 lux は旧データ互換のまま)
   const lux = Number(status.lightLevel);
   if (!Number.isFinite(temp) || !Number.isFinite(hum)) {
     throw new Error(`不正な測定値: ${JSON.stringify(status)}`);
@@ -315,12 +268,7 @@ async function main() {
   }
 
   // アラート判定
-  const metrics = {
-    temp,
-    hum,
-    di: discomfortIndex(temp, hum),
-    vh: volumetricHumidity(temp, hum),
-  };
+  const metrics = buildMetrics(temp, hum);
   const season = currentSeason(nowMs);
   const state = await readJsonOr(STATE_FILE, { active: {} });
   const prevActive = state.active ?? {};
@@ -343,11 +291,11 @@ async function main() {
         await lineBroadcast(LINE_CHANNEL_TOKEN, text);
         console.log("LINE broadcast sent");
       } catch (err) {
-        // 通知失敗でも測定データの記録は保持する。通知した扱いの状態を元に戻して
-        // 次回実行で再送を試み、ジョブ自体は失敗としてマークする
+        // 通知失敗でも測定データの記録は保持する。発火状態(active)は事実なので
+        // そのまま残し(ダッシュボードの表示を偽らない)、通知記録だけ取り消して
+        // 次回実行で再送させる。ジョブ自体は失敗としてマークする
         console.error(`LINE通知に失敗: ${err.message}`);
         for (const key of notifiedKeys) {
-          active[key] = prevActive[key] ?? false;
           if (prevLastNotified[key] == null) delete lastNotified[key];
           else lastNotified[key] = prevLastNotified[key];
         }
@@ -365,8 +313,15 @@ async function main() {
     localDate(nowMs).getUTCHours() >= config.dailyReport.hour &&
     lastReport !== todayKey
   ) {
+    // 月初はレポートの24時間レンジが前月ファイルにまたがるため、
+    // 当月分だけで足りないときは前月分も読んで結合する
+    let reportRecords = records;
+    if (records[0].t > record.t - 86400) {
+      const prev = await readJsonOr(path.join(DATA_DIR, monthFileName(prevMonthMs(nowMs))), []);
+      reportRecords = prev.filter((r) => r.t >= record.t - 86400).concat(records);
+    }
     try {
-      await lineBroadcast(LINE_CHANNEL_TOKEN, buildDailyReport(records, metrics, active));
+      await lineBroadcast(LINE_CHANNEL_TOKEN, buildDailyReport(reportRecords, metrics, active));
       lastReport = todayKey;
       console.log("daily report sent");
     } catch (err) {
