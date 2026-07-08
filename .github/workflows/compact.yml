@@ -1,0 +1,65 @@
+name: compact
+
+on:
+  # 保持期間(config.retention.months)を過ぎた月次データを GitHub Releases に
+  # 退避して削除し、全履歴を1コミットに squash して repo サイズを頭打ちにする。
+  # 毎月2日に実行(1日の月替わり処理と重ねない)。schedule はデフォルトブランチのみ。
+  schedule:
+    - cron: "37 2 2 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  # collect・watchdog と直列化し、force push とデータコミットの競合を防ぐ
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  compact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Archive expired months and squash history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/compact.mjs > expired.txt
+          if [ ! -s expired.txt ]; then
+            echo "nothing to compact"
+            rm expired.txt
+            exit 0
+          fi
+
+          # 1) 退避先リリース(data-archive)を用意し、先にアップロードする。
+          #    失敗したらここで止まり、削除・squash は行われない(データは消えない)
+          if ! gh release view data-archive >/dev/null 2>&1; then
+            gh release create data-archive --title "Data archive" \
+              --notes "保持期間(config.retention.months)を過ぎた月次データの退避先。compact ワークフローが自動アップロードする。"
+          fi
+          while IFS= read -r f; do
+            gh release upload data-archive "data/$f" --clobber
+            echo "archived: $f"
+          done < expired.txt
+
+          # 2) 期限切れファイルを削除
+          while IFS= read -r f; do
+            git rm -q "data/$f"
+          done < expired.txt
+          months=$(tr '\n' ' ' < expired.txt)
+          rm expired.txt
+
+          # 3) 全履歴を現在の状態だけの1コミットに squash して force push
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan compacted
+          git add -A
+          git commit -m "compact: archive ${months}and squash history"
+          git push --force origin compacted:main
+
+          # 4) リリースのタグを新しい main に付け替える。タグが旧コミットを
+          #    指したままだと旧履歴全体が到達可能なまま残り、squash の意味がなくなる
+          git tag -f data-archive
+          git push -f origin data-archive
