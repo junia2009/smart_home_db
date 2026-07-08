@@ -16,4 +16,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node --test scripts/collect.test.mjs scripts/watchdog.test.mjs
+      # 直書きだとテストファイル追加時に漏れるため glob で拾う
+      - run: node --test scripts/*.test.mjs
