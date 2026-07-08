@@ -11,6 +11,7 @@ import {
   evaluateAlerts,
   localDayKey,
   monthFileName,
+  prevMonthMs,
   buildDailyReport,
 } from "./collect.mjs";
 
@@ -54,6 +55,15 @@ test("monthFileName / localDayKey: JST で日・月をまたぐ", () => {
   const utc630b = Date.UTC(2026, 5, 30, 14); // JST 6/30 23:00
   assert.equal(monthFileName(utc630b, 9), "2026-06.json");
   assert.equal(localDayKey(utc630b, 9), "2026-06-30");
+});
+
+test("prevMonthMs: 月初でも月末でも必ず前月を指す", () => {
+  // JST 7/1 01:00(UTC 6/30 16:00)→ 前月は 6 月
+  assert.equal(monthFileName(prevMonthMs(Date.UTC(2026, 5, 30, 16), 9), 9), "2026-06.json");
+  // JST 7/31(31日ある月の月末)→ 前月は 6 月
+  assert.equal(monthFileName(prevMonthMs(Date.UTC(2026, 6, 31, 0), 9), 9), "2026-06.json");
+  // 年またぎ: JST 1/1 → 前月は前年 12 月
+  assert.equal(monthFileName(prevMonthMs(Date.UTC(2025, 11, 31, 16), 9), 9), "2025-12.json");
 });
 
 // ---- evaluateAlerts: 状態機械 ----
@@ -115,10 +125,10 @@ test("解消→再発生: 前回通知が直近でも新規として即通知す
   assert.equal(r.lastNotified.tempHigh, NOW);
 });
 
-test("旧形式の状態(lastNotified なしで継続中): 通知せず現在時刻を起点にする", () => {
+test("通知記録がない継続中アラート(前回送信失敗の状態): 再送する", () => {
   const m = { ...OK, temp: 28.5 };
   const r = evaluateAlerts(m, TH, { tempHigh: true }, {}, NOW, 3);
-  assert.deepEqual(r.newMessages, []);
+  assert.deepEqual(r.notifiedKeys, ["tempHigh"]);
   assert.equal(r.lastNotified.tempHigh, NOW);
 });
 

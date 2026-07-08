@@ -9,7 +9,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { lineBroadcast, readJsonOr, monthFileName } from "./collect.mjs";
+import { lineBroadcast, readJsonOr, monthFileName, prevMonthMs } from "./collect.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DATA_DIR = path.join(ROOT, "data");
@@ -48,9 +48,7 @@ export function evaluateWatchdog(lastRecordT, nowSec, prevState, { staleMinutes,
 
 // 最新記録の UNIX 秒。当月ファイルが空・無しなら前月ファイルも見る(月初対策)
 async function latestRecordTime(nowMs) {
-  const tz = config.timezoneOffsetHours;
-  const prevMonthMs = nowMs - (new Date(nowMs + tz * 3600 * 1000).getUTCDate() + 1) * 86400 * 1000;
-  for (const ms of [nowMs, prevMonthMs]) {
+  for (const ms of [nowMs, prevMonthMs(nowMs)]) {
     const records = await readJsonOr(path.join(DATA_DIR, monthFileName(ms)), []);
     if (records.length > 0) return records[records.length - 1].t;
   }
