@@ -1,0 +1,49 @@
+name: watchdog
+
+on:
+  # データ収集(外部スケジューラ → collect.yml)が止まっていないかの死活監視。
+  # 収集本体とは独立した GitHub cron で毎時起動する。GitHub cron の遅延
+  # (±30分程度)は staleMinutes(既定120分)の粒度なら許容できる。
+  # 注: schedule はデフォルトブランチでのみ動作する。
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  # collect と同じグループで直列化し、data/ へのコミット競合を防ぐ
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check data freshness
+        env:
+          LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
+        run: node scripts/watchdog.mjs
+
+      - name: Commit and push state
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "no changes"
+            exit 0
+          fi
+          git commit -m "watchdog: state $(date -u +'%Y-%m-%dT%H:%MZ')"
+          for i in 1 2 3 4; do
+            if git push; then
+              exit 0
+            fi
+            git pull --rebase
+            sleep $((2 ** i))
+          done
+          git push

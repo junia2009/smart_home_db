@@ -102,13 +102,18 @@ export function volumetricHumidity(t, rh) {
 
 // ---- 季節判定・アラート ----
 
-function localDate(nowMs) {
-  return new Date(nowMs + config.timezoneOffsetHours * 3600 * 1000);
+// 引数の既定値は config.json 由来。テストからは明示的に渡して純関数として使える
+function localDate(nowMs, tzHours = config.timezoneOffsetHours) {
+  return new Date(nowMs + tzHours * 3600 * 1000);
 }
 
-export function currentSeason(nowMs) {
-  const month = localDate(nowMs).getUTCMonth() + 1;
-  return config.seasons.summerMonths.includes(month) ? "summer" : "winter";
+export function currentSeason(
+  nowMs,
+  summerMonths = config.seasons.summerMonths,
+  tzHours = config.timezoneOffsetHours
+) {
+  const month = localDate(nowMs, tzHours).getUTCMonth() + 1;
+  return summerMonths.includes(month) ? "summer" : "winter";
 }
 
 // 各アラートの判定関数。value が閾値を超えていれば通知メッセージを返す。
@@ -146,17 +151,19 @@ const ALERT_RULES = [
   },
 ];
 
-// 継続中アラートの再通知間隔(秒)。config の renotifyHours、既定3時間。
-// 0 以下なら継続中の再通知は無効(「解消→再発生」時のみ通知)。
-function renotifySec() {
-  const h = config.renotifyHours ?? 3;
-  return h > 0 ? h * 3600 : Infinity;
-}
-
+// th: そのモードの閾値オブジェクト(config.thresholds[season])
 // prevLastNotified: { key: 最終通知UNIX秒 }、nowSec: 今回の記録時刻(秒)
-export function evaluateAlerts(metrics, season, prevActive, prevLastNotified = {}, nowSec = Math.floor(Date.now() / 1000)) {
-  const th = config.thresholds[season];
-  const interval = renotifySec();
+// renotifyHours: 継続中アラートの再通知間隔(時間)。0 以下なら継続中の再通知は無効
+// (「解消→再発生」時のみ通知)。
+export function evaluateAlerts(
+  metrics,
+  th,
+  prevActive,
+  prevLastNotified = {},
+  nowSec = Math.floor(Date.now() / 1000),
+  renotifyHours = config.renotifyHours ?? 3
+) {
+  const interval = renotifyHours > 0 ? renotifyHours * 3600 : Infinity;
   const active = {};
   const lastNotified = {};
   const newMessages = [];
@@ -184,8 +191,8 @@ export function evaluateAlerts(metrics, season, prevActive, prevLastNotified = {
 
 // ---- 定時レポート ----
 
-export function localDayKey(nowMs) {
-  const d = localDate(nowMs);
+export function localDayKey(nowMs, tzHours = config.timezoneOffsetHours) {
+  const d = localDate(nowMs, tzHours);
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
@@ -198,7 +205,7 @@ const ALERT_LABELS = {
   vhLow: "乾燥",
 };
 
-export function buildDailyReport(records, metrics, active) {
+export function buildDailyReport(records, metrics, active, title = config.reportTitle ?? "【環境レポート】") {
   const now = records[records.length - 1];
   const recent = records.filter((r) => r.t >= now.t - 86400);
   const tMin = Math.min(...recent.map((r) => r.temp));
@@ -206,7 +213,6 @@ export function buildDailyReport(records, metrics, active) {
   const hMin = Math.min(...recent.map((r) => r.hum));
   const hMax = Math.max(...recent.map((r) => r.hum));
   const firing = Object.keys(ALERT_LABELS).filter((k) => active[k]);
-  const title = config.reportTitle ?? "【環境レポート】";
   return [
     title,
     `現在: ${now.temp.toFixed(1)}℃ / ${Math.round(now.hum)}%(不快指数${Math.round(metrics.di)})`,
@@ -219,7 +225,7 @@ export function buildDailyReport(records, metrics, active) {
 
 // ---- LINE 通知 ----
 
-async function lineBroadcast(channelToken, text) {
+export async function lineBroadcast(channelToken, text) {
   const res = await fetch("https://api.line.me/v2/bot/message/broadcast", {
     method: "POST",
     headers: {
@@ -235,7 +241,7 @@ async function lineBroadcast(channelToken, text) {
 
 // ---- データ保存 ----
 
-async function readJsonOr(file, fallback) {
+export async function readJsonOr(file, fallback) {
   try {
     return JSON.parse(await readFile(file, "utf8"));
   } catch {
@@ -243,8 +249,8 @@ async function readJsonOr(file, fallback) {
   }
 }
 
-export function monthFileName(nowMs) {
-  const d = localDate(nowMs);
+export function monthFileName(nowMs, tzHours = config.timezoneOffsetHours) {
+  const d = localDate(nowMs, tzHours);
   const ym = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
   return `${ym}.json`;
 }
@@ -320,7 +326,7 @@ async function main() {
   const prevActive = state.active ?? {};
   const prevLastNotified = state.lastNotified ?? {};
   const { active, lastNotified, newMessages, notifiedKeys } = evaluateAlerts(
-    metrics, season, prevActive, prevLastNotified, record.t
+    metrics, config.thresholds[season], prevActive, prevLastNotified, record.t
   );
 
   if (newMessages.length === 0) {
