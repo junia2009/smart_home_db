@@ -15,6 +15,10 @@ vanilla JS・依存ライブラリなし。
          ├─ data/YYYY-MM.json に追記してコミット
          └─ 閾値判定 → 新規アラートのみ LINE Messaging API で push 通知
 
+GitHub Actions cron (毎時)
+  └─ .github/workflows/watchdog.yml → scripts/watchdog.mjs
+       └─ 最終記録が古すぎたら LINE で「収集停止」を通知(死活監視)
+
 GitHub Pages (静的サイト・PWA)
   └─ index.html + app.js が data/*.json を fetch してグラフ描画
 ```
@@ -62,6 +66,26 @@ Actions タブからの手動実行を兼ねる)。
 
 念のため、二重起動時は収集スクリプト側の重複ガード(前回記録から300秒未満は
 スキップ)が効く。
+
+## 死活監視(収集停止アラート)
+
+収集の起動は cron-job.org → workflow_dispatch → ランナー起動の3段構えで、
+各段が失敗・遅延し得る。収集が止まるとアラートも止まる(=壊れたことを
+自分で知らせられない)ため、**収集本体とは独立した監視**を持つ:
+
+- `.github/workflows/watchdog.yml` が GitHub cron で**毎時**起動し、
+  最終記録が `watchdog.staleMinutes`(既定120分)より古ければ LINE で
+  「収集停止」を通知。継続中は `watchdog.renotifyHours`(既定6時間)間隔で
+  再通知し、復旧したら「復旧」を1回通知する
+- 通知状態は `data/watchdog-state.json` で管理(状態が変わったときだけコミット)
+- ダッシュボードも同じ `staleMinutes` 基準で「⚠️ 収集が停止している可能性」を
+  最終更新の隣に表示する
+
+GitHub cron は遅延する(±30分程度)が、120分の閾値ならこの粒度で十分。
+収集に GitHub cron を使わないのに監視には使うのは、監視は「おおよそ毎時
+動けばよい」ためで、経路を分けること自体が目的(共倒れ防止)。
+なお GitHub 自体の全面障害は原理的に検知できない。schedule トリガーは
+**デフォルトブランチでのみ**動く点に注意。
 
 ## アラート仕様
 
@@ -128,6 +152,38 @@ python3 -m http.server 8000
 収集スクリプトのロジック(署名生成・アラート判定)は `scripts/collect.mjs` に
 まとまっており、Node 20+ で単体実行できる。
 
+### テスト
+
+アラート判定・死活監視・季節/日付境界の純ロジックは `node:test` でテストする
+(依存ライブラリなし)。`scripts/**` を変更する push で CI(`test.yml`)も走る。
+
+```sh
+node --test
+```
+
+## プライバシーとセキュリティ
+
+**このリポジトリと GitHub Pages を public で運用する場合、データそのものが
+生活パターンの漏洩源になる**ことを理解した上で使うこと:
+
+- **照度**: 点灯・消灯の時刻から在宅・就寝パターンが推定できる
+- **消費電力(プラグ)**: ON/OFF とワット数から在宅/不在がほぼ分かる
+- **室温・湿度**: 冷暖房の使用パターン(=在宅時間帯)が読み取れる
+
+緩和策(必要に応じて):
+
+- リポジトリ名・`roomName`・デバイス名に住所や個人の特定につながる情報を
+  入れない(デバイスIDは元々コード・データに含めない設計)
+- 照度・電力の記録が不要なら記録しない(プラグを外す / スクリプトから除く)
+- 完全に非公開にしたい場合は private リポジトリ + Pages の代わりに
+  Cloudflare Pages 等の認証付きホスティングへ
+
+また、cron-job.org には Actions: Read and write の fine-grained PAT を預ける。
+対象をこのリポジトリのみに絞っていても、**cron-job.org 側の侵害時には
+ワークフローの起動権限が漏れる**トレードオフは残る(起動されて困る処理は
+このワークフローには無いが、Actions の実行時間は消費される)。PAT には
+有効期限を設定し、定期的にローテーションすること。
+
 ## データ形式
 
 環境ログ `data/YYYY-MM.json`(月別、1レコード1行):
@@ -158,6 +214,7 @@ python3 -m http.server 8000
 | `reportTitle` | 定時レポートのタイトル |
 | `dailyReport` | `{ enabled, hour }` 定時レポートの有効化と送信時刻 |
 | `renotifyHours` | 継続中アラートの再通知/再表示間隔(時間)。0以下で無効 |
+| `watchdog` | `{ enabled, staleMinutes, renotifyHours }` 死活監視。最終記録が `staleMinutes` より古ければ収集停止を通知 |
 | `power.yenPerKwh` | 電気代換算の単価(円/kWh) |
 | `timezoneOffsetHours` | タイムゾーン(JST = 9) |
 | `seasons.summerMonths` | 夏モードの月 |

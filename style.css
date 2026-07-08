@@ -126,6 +126,11 @@ body::before {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
+/* 最終記録が watchdog の staleMinutes より古いとき */
+.page-header .meta .stale {
+  color: var(--status-warn);
+  font-weight: 600;
+}
 .refresh-btn {
   margin-left: auto;
   width: 36px;

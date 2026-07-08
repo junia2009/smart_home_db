@@ -456,8 +456,14 @@ function renderCards() {
 
   document.getElementById("season-label").textContent =
     season === "summer" ? "夏モード" : "冬モード";
-  document.getElementById("updated-at").textContent =
-    `最終更新 ${formatDateTime(date)}(${formatAgo(date)})`;
+
+  // 死活監視(watchdog)と同じ staleMinutes 基準で、収集停止の可能性を表示する
+  const ageMin = (Date.now() - date.getTime()) / 60000;
+  const staleMin = state.config.watchdog?.staleMinutes ?? 120;
+  const updatedEl = document.getElementById("updated-at");
+  updatedEl.textContent = `最終更新 ${formatDateTime(date)}(${formatAgo(date)})`;
+  updatedEl.classList.toggle("stale", ageMin > staleMin);
+  if (ageMin > staleMin) updatedEl.textContent += " ⚠️ 収集が停止している可能性";
 }
 
 function formatDateTime(d) {
