@@ -5,6 +5,7 @@
   "dailyReport": { "enabled": true, "hour": 7 },
   "renotifyHours": 3,
   "watchdog": { "enabled": true, "staleMinutes": 120, "renotifyHours": 6 },
+  "retention": { "months": 6 },
   "power": { "yenPerKwh": 31 },
   "timezoneOffsetHours": 9,
   "seasons": {
