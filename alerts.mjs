@@ -50,7 +50,8 @@ export const ALERT_RULES = [
     level: "warn",
     label: "湿度が高い",
     shortLabel: "湿度高",
-    test: (m, th) => th.humHigh != null && m.hum > th.humHigh,
+    // 湿度上限は「閾値に達したら」発火(≥)。温度上限(>)と違い境界を含む
+    test: (m, th) => th.humHigh != null && m.hum >= th.humHigh,
     message: (m) => `湿度${Math.round(m.hum)}%。カビ・あせも注意`,
   },
   {

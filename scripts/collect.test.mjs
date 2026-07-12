@@ -141,9 +141,13 @@ test("閾値 null のルールは判定しない", () => {
   assert.deepEqual(r.newMessages, []);
 });
 
-test("境界値: 温度はちょうど閾値では発火せず、不快指数は ≥ で発火する", () => {
+test("境界値: 温度はちょうど閾値では発火せず、湿度上限・不快指数は ≥ で発火する", () => {
   const atTemp = evaluateAlerts({ ...OK, temp: 28 }, TH, {}, {}, NOW, 3);
   assert.equal(atTemp.active.tempHigh, false);
+  const atHum = evaluateAlerts({ ...OK, hum: 65 }, TH, {}, {}, NOW, 3);
+  assert.equal(atHum.active.humHigh, true);
+  const belowHum = evaluateAlerts({ ...OK, hum: 64 }, TH, {}, {}, NOW, 3);
+  assert.equal(belowHum.active.humHigh, false);
   const atDi = evaluateAlerts({ ...OK, di: 80 }, TH, {}, {}, NOW, 3);
   assert.equal(atDi.active.diHigh, true);
 });
