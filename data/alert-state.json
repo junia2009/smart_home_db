@@ -1,17 +1,14 @@
 {
   "active": {
-    "tempHigh": true,
+    "tempHigh": false,
     "tempLow": false,
     "humHigh": false,
     "humLow": false,
-    "diHigh": true,
+    "diHigh": false,
     "vhLow": false
   },
-  "lastNotified": {
-    "tempHigh": 1784546119,
-    "diHigh": 1784543425
-  },
+  "lastNotified": {},
   "lastReport": "2026-07-20",
-  "updatedAt": 1784551523,
+  "updatedAt": 1784552443,
   "season": "summer"
 }
