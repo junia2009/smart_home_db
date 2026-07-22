@@ -4,14 +4,13 @@
     "tempLow": false,
     "humHigh": false,
     "humLow": false,
-    "diHigh": true,
+    "diHigh": false,
     "vhLow": false
   },
   "lastNotified": {
-    "tempHigh": 1784693720,
-    "diHigh": 1784694625
+    "tempHigh": 1784693720
   },
   "lastReport": "2026-07-22",
-  "updatedAt": 1784700918,
+  "updatedAt": 1784701829,
   "season": "summer"
 }
