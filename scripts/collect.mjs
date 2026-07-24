@@ -171,6 +171,12 @@ export function buildDailyReport(records, metrics, active, title = config.report
 
 // ---- LINE 通知 ----
 
+// LINE の月間メッセージ上限(無料プランの 200 通/月 など)超過は 429 + 本文で判別する。
+// 一時的な失敗と違い、枠がリセットされる翌月まで再送しても無駄なので区別して扱う。
+export function isMonthlyLimitError(status, body) {
+  return status === 429 && /monthly limit/i.test(body ?? "");
+}
+
 export async function lineBroadcast(channelToken, text) {
   const res = await fetch("https://api.line.me/v2/bot/message/broadcast", {
     method: "POST",
@@ -181,7 +187,11 @@ export async function lineBroadcast(channelToken, text) {
     body: JSON.stringify({ messages: [{ type: "text", text }] }),
   });
   if (!res.ok) {
-    throw new Error(`LINE API HTTP ${res.status}: ${await res.text()}`);
+    const body = await res.text();
+    const err = new Error(`LINE API HTTP ${res.status}: ${body}`);
+    err.status = res.status;
+    err.monthlyLimit = isMonthlyLimitError(res.status, body);
+    throw err;
   }
 }
 
@@ -277,6 +287,19 @@ async function main() {
     metrics, config.thresholds[season], prevActive, prevLastNotified, record.t
   );
 
+  const ym = monthFileName(nowMs).slice(0, 7); // "YYYY-MM"(LINE の月間上限はローカル月単位)
+  // 前回の実行で今月分の送信上限に達していれば、枠がリセットされる翌月まで送信を試みない。
+  // state.lineLimitMonth が今月と一致する間だけブロックし、月が変われば自動的に解除される。
+  let lineLimitMonth = state.lineLimitMonth === ym ? ym : null;
+
+  // 通知できなかったときの後始末: 通知記録を取り消す。継続中アラートは次回 owed 扱いで再送される
+  const rollbackNotified = () => {
+    for (const key of notifiedKeys) {
+      if (prevLastNotified[key] == null) delete lastNotified[key];
+      else lastNotified[key] = prevLastNotified[key];
+    }
+  };
+
   if (newMessages.length === 0) {
     console.log(`alerts: none new (season=${season})`);
   } else {
@@ -286,6 +309,11 @@ async function main() {
 
     if (!LINE_CHANNEL_TOKEN) {
       console.warn("LINE_CHANNEL_TOKEN 未設定のため通知をスキップします");
+    } else if (lineLimitMonth) {
+      // 今月は既に送信上限に達している。再送しても 429 になるだけなので試みない。
+      // 発火状態(active)は事実なので残し、通知記録だけ取り消して枠回復後に再送させる。
+      console.warn(`LINE月間送信上限に到達済み(${ym})のため通知をスキップします`);
+      rollbackNotified();
     } else {
       try {
         await lineBroadcast(LINE_CHANNEL_TOKEN, text);
@@ -293,13 +321,18 @@ async function main() {
       } catch (err) {
         // 通知失敗でも測定データの記録は保持する。発火状態(active)は事実なので
         // そのまま残し(ダッシュボードの表示を偽らない)、通知記録だけ取り消して
-        // 次回実行で再送させる。ジョブ自体は失敗としてマークする
+        // 次回実行で再送させる。
         console.error(`LINE通知に失敗: ${err.message}`);
-        for (const key of notifiedKeys) {
-          if (prevLastNotified[key] == null) delete lastNotified[key];
-          else lastNotified[key] = prevLastNotified[key];
+        rollbackNotified();
+        if (err.monthlyLimit) {
+          // 月間上限は既知の外部要因。今月は以降の送信を止め、ジョブ自体は失敗させない
+          // (毎回の実行が失敗し続けるのを防ぐ)。翌月に枠がリセットされれば自動再開する。
+          lineLimitMonth = ym;
+          console.warn(`月間送信上限のため今月(${ym})はLINE通知を停止します(翌月に自動再開)`);
+        } else {
+          // 一時的な失敗(通信・認証など)はジョブを失敗としてマークし、次回再送する
+          process.exitCode = 1;
         }
-        process.exitCode = 1;
       }
     }
   }
@@ -310,6 +343,7 @@ async function main() {
   if (
     config.dailyReport?.enabled &&
     LINE_CHANNEL_TOKEN &&
+    !lineLimitMonth &&
     localDate(nowMs).getUTCHours() >= config.dailyReport.hour &&
     lastReport !== todayKey
   ) {
@@ -327,13 +361,18 @@ async function main() {
     } catch (err) {
       // 失敗しても記録は保持し、次回実行で再送を試みる
       console.error(`定時レポート送信に失敗: ${err.message}`);
-      process.exitCode = 1;
+      if (err.monthlyLimit) {
+        lineLimitMonth = ym;
+        console.warn(`月間送信上限のため今月(${ym})はLINE通知を停止します(翌月に自動再開)`);
+      } else {
+        process.exitCode = 1;
+      }
     }
   }
 
   await writeFile(
     STATE_FILE,
-    JSON.stringify({ active, lastNotified, lastReport, updatedAt: record.t, season }, null, 2) + "\n"
+    JSON.stringify({ active, lastNotified, lastReport, lineLimitMonth, updatedAt: record.t, season }, null, 2) + "\n"
   );
 }
 
