@@ -13,6 +13,7 @@ import {
   monthFileName,
   prevMonthMs,
   buildDailyReport,
+  isMonthlyLimitError,
 } from "./collect.mjs";
 
 // テスト用の閾値(全ルール有効)
@@ -157,6 +158,17 @@ test("複数同時発火: 1回の判定で全メッセージが揃う", () => {
   const r = evaluateAlerts(m, TH, {}, {}, NOW, 3);
   assert.deepEqual(r.notifiedKeys, ["tempHigh", "humHigh", "diHigh"]);
   assert.equal(r.newMessages.length, 3);
+});
+
+// ---- LINE 月間送信上限の判別 ----
+
+test("isMonthlyLimitError: 429 + monthly limit 本文のみ true", () => {
+  assert.equal(isMonthlyLimitError(429, '{"message":"You have reached your monthly limit."}'), true);
+  assert.equal(isMonthlyLimitError(429, "Monthly Limit"), true); // 大文字小文字を問わない
+  assert.equal(isMonthlyLimitError(429, "Too Many Requests"), false); // 短期レート制限は対象外
+  assert.equal(isMonthlyLimitError(500, "monthly limit"), false); // 429 以外は対象外
+  assert.equal(isMonthlyLimitError(429, ""), false);
+  assert.equal(isMonthlyLimitError(429, null), false);
 });
 
 // ---- 定時レポート ----
