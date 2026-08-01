@@ -287,6 +287,10 @@ async function main() {
     metrics, config.thresholds[season], prevActive, prevLastNotified, record.t
   );
 
+  // LINE 通知全体のキルスイッチ。false の間は送信だけ止め、測定・判定・記録は続ける
+  // (ダッシュボードの表示は今まで通り。true に戻せばそのまま通知が再開する)
+  const notifyEnabled = config.notifications?.enabled !== false;
+
   const ym = monthFileName(nowMs).slice(0, 7); // "YYYY-MM"(LINE の月間上限はローカル月単位)
   // 前回の実行で今月分の送信上限に達していれば、枠がリセットされる翌月まで送信を試みない。
   // state.lineLimitMonth が今月と一致する間だけブロックし、月が変われば自動的に解除される。
@@ -307,7 +311,11 @@ async function main() {
     const text = `${title}\n` + newMessages.map((m) => `・${m}`).join("\n");
     console.log(`alerts: ${JSON.stringify(newMessages)}`);
 
-    if (!LINE_CHANNEL_TOKEN) {
+    if (!notifyEnabled) {
+      // 通知だけ止めて記録・判定は続ける。再開時に取りこぼさないよう通知記録は残さない
+      console.log("通知は config.notifications.enabled=false のため送信しません");
+      rollbackNotified();
+    } else if (!LINE_CHANNEL_TOKEN) {
       console.warn("LINE_CHANNEL_TOKEN 未設定のため通知をスキップします");
     } else if (lineLimitMonth) {
       // 今月は既に送信上限に達している。再送しても 429 になるだけなので試みない。
@@ -342,6 +350,7 @@ async function main() {
   const todayKey = localDayKey(nowMs);
   if (
     config.dailyReport?.enabled &&
+    notifyEnabled &&
     LINE_CHANNEL_TOKEN &&
     !lineLimitMonth &&
     localDate(nowMs).getUTCHours() >= config.dailyReport.hour &&
