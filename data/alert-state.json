@@ -1,7 +1,7 @@
 {
   "active": {
     "tempHigh": false,
-    "tempLow": false,
+    "tempLow": true,
     "humHigh": false,
     "humLow": false,
     "diHigh": false,
@@ -10,6 +10,6 @@
   "lastNotified": {},
   "lastReport": "2026-08-02",
   "lineLimitMonth": null,
-  "updatedAt": 1790976628,
+  "updatedAt": 1790977517,
   "season": "summer"
 }
