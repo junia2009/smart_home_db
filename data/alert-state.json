@@ -5,11 +5,11 @@
     "humHigh": false,
     "humLow": false,
     "diHigh": false,
-    "vhLow": false
+    "vhLow": true
   },
   "lastNotified": {},
   "lastReport": "2026-08-02",
   "lineLimitMonth": null,
-  "updatedAt": 1794090630,
+  "updatedAt": 1794091519,
   "season": "winter"
 }
