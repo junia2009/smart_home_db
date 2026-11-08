@@ -3,13 +3,13 @@
     "tempHigh": false,
     "tempLow": false,
     "humHigh": false,
-    "humLow": false,
+    "humLow": true,
     "diHigh": false,
-    "vhLow": false
+    "vhLow": true
   },
   "lastNotified": {},
   "lastReport": "2026-08-02",
   "lineLimitMonth": null,
-  "updatedAt": 1794104121,
+  "updatedAt": 1794105030,
   "season": "winter"
 }
